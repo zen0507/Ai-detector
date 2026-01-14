@@ -1,0 +1,198 @@
+/* SentryAI Premium Admin Theme - Adaptive */
+
+/* 1. Define Variables (Default to Light Mode, but respecting Dark preference) */
+:root {
+    /* Light Mode Constants */
+    --primary-bg: #f8fafc;
+    /* Slate 50 */
+    --secondary-bg: #e2e8f0;
+    /* Slate 200 */
+    --glass-bg: rgba(255, 255, 255, 0.7);
+    --glass-border: rgba(148, 163, 184, 0.2);
+    --text-primary: #1e293b;
+    /* Slate 800 */
+    --text-secondary: #64748b;
+    /* Slate 500 */
+    --text-accent: #4f46e5;
+    /* Indigo 600 */
+    --card-bg: rgba(255, 255, 255, 0.6);
+    --card-shadow: rgba(0, 0, 0, 0.05);
+
+    --accent: #6366f1;
+    --accent-glow: #818cf8;
+
+    --input-bg: rgba(255, 255, 255, 0.8);
+    --sidebar-bg: rgba(255, 255, 255, 0.85);
+}
+
+/* 2. Dark Mode Overrides (System Preference) */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --primary-bg: #020617;
+        /* Deep Navy */
+        --secondary-bg: #0f172a;
+        /* Slate 900 */
+        --glass-bg: rgba(15, 23, 42, 0.6);
+        --glass-border: rgba(255, 255, 255, 0.08);
+        --text-primary: #f8fafc;
+        /* Slate 50 */
+        --text-secondary: #94a3b8;
+        /* Slate 400 */
+        --text-accent: #818cf8;
+        /* Indigo 400 */
+        --card-bg: rgba(30, 41, 59, 0.4);
+        --card-shadow: rgba(0, 0, 0, 0.3);
+
+        --accent: #6366f1;
+        /* Indigo 500 */
+        --accent-glow: #7c3aed;
+        /* Violet 600 */
+        --input-bg: rgba(0, 0, 0, 0.2);
+        --sidebar-bg: rgba(15, 23, 42, 0.8);
+    }
+}
+
+body {
+    background-color: var(--primary-bg) !important;
+    color: var(--text-primary) !important;
+    background-image: radial-gradient(var(--glass-border) 1px, transparent 1px);
+    background-size: 24px 24px;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Sidebar Polish */
+.main-sidebar {
+    background: var(--sidebar-bg) !important;
+    backdrop-filter: blur(12px);
+    border-right: 1px solid var(--glass-border);
+    box-shadow: 4px 0 24px var(--card-shadow);
+}
+
+.brand-link {
+    background: transparent !important;
+    border-bottom: 1px solid var(--glass-border) !important;
+    color: var(--text-primary) !important;
+}
+
+.nav-link {
+    color: var(--text-secondary) !important;
+}
+
+.nav-link.active {
+    background: linear-gradient(90deg, rgba(99, 102, 241, 0.15), transparent) !important;
+    border-left: 3px solid var(--accent) !important;
+    color: var(--text-primary) !important;
+    box-shadow: 0 0 15px rgba(99, 102, 241, 0.1);
+}
+
+.nav-link:hover {
+    background: rgba(99, 102, 241, 0.05) !important;
+    color: var(--accent) !important;
+}
+
+/* Header */
+.main-header {
+    background: var(--glass-bg) !important;
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--glass-border) !important;
+}
+
+.main-header .nav-link {
+    color: var(--text-secondary) !important;
+}
+
+/* Cards & Content */
+.card {
+    background: var(--card-bg) !important;
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 12px var(--card-shadow) !important;
+    transition: transform 0.2s, box-shadow 0.2s;
+    color: var(--text-primary) !important;
+}
+
+.card-header {
+    background: transparent !important;
+    border-bottom: 1px solid var(--glass-border) !important;
+    color: var(--text-primary) !important;
+}
+
+.card-title {
+    color: var(--text-primary) !important;
+}
+
+/* Table Polish */
+.table {
+    color: var(--text-secondary) !important;
+}
+
+.table thead th {
+    background: rgba(99, 102, 241, 0.05) !important;
+    border-bottom: 1px solid var(--glass-border) !important;
+    color: var(--accent) !important;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+}
+
+.table-striped tbody tr:nth-of-type(odd) {
+    background-color: rgba(99, 102, 241, 0.02) !important;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(99, 102, 241, 0.08) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Inputs */
+.form-control,
+.select2-container--default .select2-selection--single {
+    background: var(--input-bg) !important;
+    border: 1px solid var(--glass-border) !important;
+    color: var(--text-primary) !important;
+    border-radius: 8px !important;
+}
+
+.form-control:focus {
+    background: var(--input-bg) !important;
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25) !important;
+}
+
+/* Buttons */
+.btn-primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-glow)) !important;
+    border: none !important;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    font-weight: 600;
+    color: white !important;
+}
+
+.btn-primary:hover {
+    filter: brightness(1.1);
+}
+
+/* Accent Text */
+a {
+    color: var(--accent) !important;
+}
+
+a:hover {
+    color: var(--accent-glow) !important;
+}
+
+/* Content Header */
+.content-header h1 {
+    color: var(--text-primary) !important;
+}
+
+/* Breadcrumbs */
+.breadcrumb-item a {
+    color: var(--text-accent) !important;
+}
+
+.breadcrumb-item.active {
+    color: var(--text-secondary) !important;
+}

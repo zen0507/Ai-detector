@@ -1,0 +1,122 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&display=swap');
+
+:root {
+    --primary-font: 'Outfit', sans-serif !important;
+    --neon-cyan: #06b6d4;
+    --neon-violet: #8b5cf6;
+    --glass-border: rgba(255, 255, 255, 0.1);
+}
+
+body,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.h1,
+.h2,
+.h3,
+.h4,
+.h5,
+.h6 {
+    font-family: var(--primary-font);
+}
+
+/* Sidebar Styling */
+.main-sidebar {
+    background: #0a101f !important;
+    border-right: 1px solid var(--glass-border);
+}
+
+.brand-link {
+    background: transparent !important;
+    border-bottom: 1px solid var(--glass-border) !important;
+}
+
+/* Top Navbar */
+.main-header {
+    background: rgba(10, 16, 31, 0.8) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border-bottom: 1px solid var(--glass-border) !important;
+}
+
+/* Cards & Content */
+.card {
+    background: rgba(255, 255, 255, 0.03) !important;
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border) !important;
+    box-shadow: none !important;
+    border-radius: 12px !important;
+}
+
+.card-header {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border-bottom: 1px solid var(--glass-border) !important;
+}
+
+/* Buttons */
+.btn-primary {
+    background: linear-gradient(135deg, #4f46e5 0%, #8b5cf6 100%) !important;
+    border: none !important;
+    box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+    box-shadow: 0 0 25px rgba(139, 92, 246, 0.5);
+    transform: translateY(-1px);
+}
+
+.btn-success {
+    background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
+    border: none !important;
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%) !important;
+    border: none !important;
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+}
+
+/* Inputs */
+.form-control {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid var(--glass-border) !important;
+    color: #fff !important;
+    border-radius: 8px !important;
+}
+
+.form-control:focus {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border-color: var(--neon-violet) !important;
+    box-shadow: 0 0 0 0.2rem rgba(139, 92, 246, 0.25) !important;
+}
+
+/* Tables */
+.table {
+    color: #cbd5e1 !important;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Branding */
+.brand-image {
+    opacity: 0.8;
+}
+
+.login-page {
+    background-image: linear-gradient(to bottom, #020617, #0f172a, #1e1b4b);
+}
+
+.login-box .card {
+    background: rgba(255, 255, 255, 0.05) !important;
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}

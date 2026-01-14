@@ -1,0 +1,212 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Outfit', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 dark:bg-dark dark:text-slate-200 antialiased overflow-x-hidden selection:bg-neon-violet/30 min-h-screen relative transition-colors duration-500;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -2;
+  background: radial-gradient(circle at 50% 0%, #ffffff 0%, #f8fafc 50%, #e0e7ff 100%);
+  opacity: 1;
+  transition: opacity 0.5s;
+}
+
+.dark body::before {
+  opacity: 0;
+}
+
+.dark body {
+  background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0f172a 60%, #020617 100%);
+  background-attachment: fixed;
+}
+
+/* --- Crystal Aurora Background --- */
+.aurora-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -1;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+}
+
+.aurora-light {
+  position: absolute;
+  filter: blur(80px);
+  opacity: 0.8;
+  border-radius: 50%;
+  animation: float 10s infinite ease-in-out;
+}
+
+.light-1 {
+  top: -10%;
+  left: -10%;
+  width: 50vw;
+  height: 50vw;
+  background: radial-gradient(circle, rgba(129, 140, 248, 0.4) 0%, transparent 70%);
+  animation-delay: 0s;
+}
+
+.light-2 {
+  bottom: -10%;
+  right: -10%;
+  width: 60vw;
+  height: 60vw;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.3) 0%, transparent 70%);
+  animation-delay: -5s;
+}
+
+.light-3 {
+  top: 40%;
+  left: 40%;
+  width: 40vw;
+  height: 40vw;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.3) 0%, transparent 70%);
+  animation-delay: -2s;
+}
+
+/* Light Mode Overrides for Aurora */
+html:not(.dark) .aurora-light {
+  filter: blur(60px);
+  opacity: 0.5;
+}
+
+html:not(.dark) .light-1 {
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.3) 0%, transparent 70%);
+}
+
+html:not(.dark) .light-2 {
+  background: radial-gradient(circle, rgba(129, 140, 248, 0.2) 0%, transparent 70%);
+}
+
+html:not(.dark) .light-3 {
+  background: radial-gradient(circle, rgba(244, 114, 182, 0.2) 0%, transparent 70%);
+}
+
+/* --- Grid Background Pattern (New) --- */
+.bg-grid-pattern {
+  background-size: 40px 40px;
+  background-image: linear-gradient(to right, rgba(99, 102, 241, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(99, 102, 241, 0.05) 1px, transparent 1px);
+}
+
+.dark .bg-grid-pattern {
+  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+/* --- Premium Glass Panel --- */
+.glass-panel {
+  @apply bg-white/80 dark:bg-glass-surface backdrop-blur-2xl border border-white/40 dark:border-glass-border rounded-3xl shadow-2xl dark:shadow-glass transition-all duration-500 relative overflow-hidden;
+}
+
+.glass-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+  transform: skewX(-15deg);
+  transition: 0.5s;
+  pointer-events: none;
+}
+
+.dark .glass-panel::before {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.03), transparent);
+}
+
+.glass-panel:hover::before {
+  left: 100%;
+  transition: 0.7s;
+}
+
+.glass-panel:hover {
+  @apply border-indigo-500/40 dark:border-white/10 shadow-indigo-500/20 dark:shadow-neon;
+  transform: translateY(-2px);
+}
+
+.dark .glass-panel:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  /* Only apply bg shift in dark mode */
+}
+
+/* --- Premium Inputs --- */
+.glass-input {
+  @apply w-full bg-slate-50/50 dark:bg-black/20 border border-slate-300 dark:border-white/5 rounded-2xl px-5 py-4 text-base text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:bg-white dark:focus:bg-black/40 focus:border-indigo-600 dark:focus:border-neon-violet/50 focus:ring-1 focus:ring-indigo-600 dark:focus:ring-neon-violet/50 transition-all duration-300 font-medium;
+}
+
+/* --- Premium Buttons --- */
+.btn-base {
+  @apply relative overflow-hidden rounded-xl font-bold tracking-wide transition-all duration-300 flex items-center justify-center gap-2 active:scale-95;
+}
+
+.btn-primary {
+  @apply btn-base bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40 hover:brightness-110 border border-transparent;
+}
+
+.btn-ghost {
+  @apply btn-base bg-white/5 border border-white/5 text-slate-300 hover:bg-white/10 hover:text-white hover:border-white/10;
+}
+
+/* --- Typography Utilities --- */
+.text-gradient {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-200 to-slate-400;
+}
+
+.text-glow {
+  text-shadow: 0 0 20px rgba(129, 140, 248, 0.4);
+}
+
+/* --- Animations --- */
+@keyframes float {
+
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  33% {
+    transform: translate(30px, -50px);
+  }
+
+  66% {
+    transform: translate(-20px, 20px);
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
