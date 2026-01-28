@@ -17,7 +17,7 @@ class BaseFinancialDocumentDetector:
         
     def analyze(self, ocr_data: Dict[str, str], doc_data: Any = None) -> Dict[str, Any]:
         """
-        Base analysis method - override in subclasses
+        Base analysis method - for unknown documents, we use comprehensive invoice fraud detection
         
         Args:
             ocr_data: Dictionary with 'easyocr_text' and 'tesseract_text'
@@ -26,29 +26,13 @@ class BaseFinancialDocumentDetector:
         Returns:
             Dictionary with fraud analysis results
         """
-        self.fraud_indicators = []
-        self.risk_score = 0.0
-        
-        # Combine OCR text
-        text = ocr_data.get('easyocr_text', '') + ' ' + ocr_data.get('tesseract_text', '')
-        text = text.lower()
-        
-        # Run common checks
-        self._check_text_quality(text)
-        self._check_date_validity(text)
-        self._check_amount_patterns(text)
-        self._check_urgency_indicators(text)
-        
-        # Calculate risk score
-        self._calculate_risk_score()
-        
-        return {
-            'document_type': self.document_type,
-            'fraud_indicators': self.fraud_indicators,
-            'risk_score': self.risk_score,
-            'total_flags': len(self.fraud_indicators),
-            'severity': self._get_severity_level()
-        }
+        # For unknown/generic financial documents, use full invoice fraud detection
+        # This ensures comprehensive checking (Benford's Law, Faker content, etc.)
+        from app.invoice_fraud_detector import InvoiceFraudDetector
+        detector = InvoiceFraudDetector()
+        result = detector.analyze_invoice(ocr_data, doc_data)
+        result['document_type'] = self.document_type
+        return result
     
     def _check_text_quality(self, text: str):
         """Check for poor OCR quality or suspicious text patterns"""

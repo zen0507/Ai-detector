@@ -239,7 +239,7 @@ LOGIN_REDIRECT_URL = 'dashboard'
 LOGOUT_REDIRECT_URL = 'login'
 
 # FastAPI Backend URL
-FASTAPI_URL = config('FASTAPI_URL', default='http://localhost:8001')
+FASTAPI_URL = config('FASTAPI_URL', default='http://127.0.0.1:8001')
 
 # File Upload Settings
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB

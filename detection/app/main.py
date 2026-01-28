@@ -59,7 +59,8 @@ def save_cache():
     except Exception as e:
         print(f"Failed to save cache: {e}")
 
-RESULTS_CACHE = load_cache()
+# RESULTS_CACHE = load_cache()
+RESULTS_CACHE = {} # FORCE EMPTY CACHE FOR DEBUGGING
 
 
 # In-memory review requests with JSON persistence
@@ -133,9 +134,11 @@ async def health_check():
     }
 
 @app.post("/analyze-invoice")
-async def analyze_invoice(file: UploadFile, deep_analysis: bool = Query(False, description="Force deep analysis (slow)")):
+async def analyze_invoice(file: UploadFile, deep_analysis: bool = Query(True, description="Force deep analysis (slow)")):
     """
-    Analyze an invoice with optimized performance.
+    Analyze an invoice using professional auditor-style fraud detection.
+    
+    Returns verdict: REAL, FAKE, or SUSPICIOUS with structured evidence.
     """
     try:
         if not file.filename:
@@ -145,8 +148,8 @@ async def analyze_invoice(file: UploadFile, deep_analysis: bool = Query(False, d
         
         file_hash = calculate_file_hash(content)
         if file_hash in RESULTS_CACHE:
-            print(f"Cache hit for {file.filename}")
-            return RESULTS_CACHE[file_hash]
+            print(f"Ignoring cache for debug: {file.filename}")
+            # return RESULTS_CACHE[file_hash]
             
         path = UPLOAD_DIR / file.filename
         with open(path, "wb") as f:
@@ -158,33 +161,13 @@ async def analyze_invoice(file: UploadFile, deep_analysis: bool = Query(False, d
         # Step 1: Extract text (Async Wrapper)
         ocr_data = await loop.run_in_executor(None, extract_text, str(path))
         
-        # Step 2: Analyze Rules (Fast)
-        from app.invoice_fraud_detector import analyze_invoice_fraud
-        invoice_analysis = analyze_invoice_fraud(ocr_data)
-        heuristic_score = invoice_analysis['risk_score']
+        # Step 2: Professional Auditor Analysis (Primary)
+        from app.auditor_fraud_detector import analyze_document_auditor
         
-        # Optimization Logic
-        run_cnn = False
-        run_donut = False
+        # Execute parallel tasks for document understanding
+        run_cnn = deep_analysis
+        run_donut = deep_analysis
         
-        if deep_analysis:
-            run_cnn = True
-            run_donut = True
-        else:
-            if heuristic_score < 0.3:
-                run_cnn = False
-                run_donut = False
-                print("Low risk detected via rules. Skipping heavy models.")
-            elif heuristic_score > 0.8:
-                run_cnn = True
-                run_donut = False
-                print("High risk detected. Running CNN confirmation, skipping Donut.")
-            else:
-                run_cnn = True
-                run_donut = True
-                print("Uncertain risk. Running full analysis.")
-
-        # Step 3 & 4: Execute Parallel Tasks if needed
         tasks = {}
         if run_cnn:
             tasks['cnn'] = loop.run_in_executor(None, image_risk, str(path))
@@ -205,72 +188,154 @@ async def analyze_invoice(file: UploadFile, deep_analysis: bool = Query(False, d
         doc_fields = results.get('donut', {})
         tab_score = results.get('tabular', 0.0)
         
-        invoice_flags = []
-        validation_score = 0.0
-        structure_score = 0.2
+        # Run professional auditor analysis with extracted fields
+        auditor_result = analyze_document_auditor(ocr_data, doc_fields)
         
-        if doc_fields:
-            try:
-                invoice_flags = validate_invoice_fields(doc_fields)
-                for flag in invoice_flags:
-                    if flag["severity"] == "high":
-                        validation_score += 0.25
-                    elif flag["severity"] == "medium":
-                        validation_score += 0.10
-                validation_score = min(validation_score, 1.0)
+        # ████████████████████████████████████████████████████████████████████████
+        # ██  EXECUTION GUARD — FINAL AUTHORITY — PRIORITY OVERRIDE            ██
+        # ████████████████████████████████████████████████████████████████████████
+        #
+        # This is the FINAL AUTHORITY in the fraud detection pipeline.
+        # When priority_override_active == true:
+        #
+        # ❌ STOP all further analysis immediately
+        # ❌ DO NOT compute or accept any risk score
+        # ❌ DO NOT run score fusion
+        # ❌ DO NOT apply risk-mapping tables
+        # ❌ DO NOT allow MEDIUM or HIGH risk labels
+        # ❌ DO NOT let image manipulation upgrade verdict
+        #
+        # ✅ Return the response immediately
+        # ✅ No downstream component may reinterpret this result
+        #
+        # ████████████████████████████████████████████████████████████████████████
+        if auditor_result.get('priority_override_active', False):
+            # ═══════════════════════════════════════════════════════════════════
+            # EXECUTION TERMINATED — RETURNING LOCKED CLEAN RESULT
+            # ═══════════════════════════════════════════════════════════════════
+            result = {
+                # LOCKED VERDICT — CANNOT BE CHANGED
+                "verdict": "REAL",
+                "confidence": "HIGH",
+                "primary_reason": auditor_result.get('primary_reason', 'Priority Override: Verified invoice'),
+                "supporting_evidence": auditor_result.get('supporting_evidence', []),
+                "priority_override_active": True,
+                "analysis_steps": auditor_result.get('analysis_steps', {}),
                 
-                structure_score = 0.8 if doc_fields else 0.2
+                # FORCED CLEAN VALUES — IMMUTABLE
+                "final_score": 0.05,
+                "risk_level": "Low Risk",
+                "severity": "Clean",
                 
-                if invoice_flags:
-                    invoice_analysis['fraud_indicators'].extend(invoice_flags)
-                    invoice_analysis['total_flags'] += len(invoice_flags)
-            except Exception as e:
-                print(f"Validation error: {e}")
-
-        combined_score = (
-            0.45 * validation_score +
-            0.25 * image_score +
-            0.15 * structure_score +
-            0.10 * tab_score +
-            0.05 * heuristic_score
-        )
+                # Document info
+                "filename": file.filename,
+                "file_info": file_info,
+                "invoice_analysis": {
+                    "fraud_indicators": [],  # FORCED EMPTY — NO FRAUD
+                    "total_flags": 0,
+                    "severity": "Clean"
+                },
+                "component_scores": {
+                    "auditor_analysis": 0.05,
+                    "image_manipulation": round(image_score, 3),  # RECORDED but IGNORED
+                    "legacy_model": round(tab_score, 3)  # RECORDED but IGNORED
+                },
+                "recommendations": [],  # FORCED EMPTY — DOC IS CLEAN
+                "document_understanding": {
+                    "extracted_fields": doc_fields,
+                    "validation_flags": []  # FORCED EMPTY — NO ISSUES
+                },
+                "extracted_text": {
+                    "easyocr": ocr_data.get('easyocr_text', '')[:200] + "..." if len(ocr_data.get('easyocr_text', '')) > 200 else ocr_data.get('easyocr_text', ''),
+                    "tesseract": ocr_data.get('tesseract_text', '')[:200] + "..." if len(ocr_data.get('tesseract_text', '')) > 200 else ocr_data.get('tesseract_text', '')
+                },
+                "performance": {
+                    "cnn_executed": run_cnn,
+                    "donut_executed": run_donut,
+                    "cached": False,
+                    "priority_override_bypass": True,  # SCORE FUSION WAS BYPASSED
+                    "execution_terminated": True  # EXPLICIT TERMINATION FLAG
+                }
+            }
+            
+            RESULTS_CACHE[file_hash] = result
+            save_cache()
+            result["id"] = file_hash
+            result["verification_status"] = REVIEW_STATUS.get(file_hash, {}).get("status", "none")
+            
+            # ═══════════════════════════════════════════════════════════════════
+            # IMMEDIATE RETURN — EXECUTION TERMINATES HERE
+            # ═══════════════════════════════════════════════════════════════════
+            return result
         
-        high_severity_flags = [f for f in invoice_analysis['fraud_indicators'] if f.get('severity') == 'high']
-        if len(high_severity_flags) >= 1:
-            combined_score = max(combined_score, 0.88)
-
-        if combined_score > 0.7:
+        # ════════════════════════════════════════════════════════════════════════
+        # NORMAL PROCESSING (only when override NOT active)
+        # ════════════════════════════════════════════════════════════════════════
+        
+        # Extract verdict info
+        verdict = auditor_result.get('verdict', 'SUSPICIOUS')
+        confidence = auditor_result.get('confidence', 'LOW')
+        primary_reason = auditor_result.get('primary_reason', 'Analysis completed')
+        supporting_evidence = auditor_result.get('supporting_evidence', [])
+        
+        # Map verdict to risk level for backward compatibility
+        if verdict == "FAKE":
             risk_level = "High Risk"
-        elif combined_score > 0.4:
+            combined_score = 0.95
+        elif verdict == "SUSPICIOUS":
             risk_level = "Medium Risk"
-        else:
+            combined_score = 0.55 if confidence == "MEDIUM" else 0.45
+        else:  # REAL
             risk_level = "Low Risk"
+            combined_score = 0.15 if confidence == "HIGH" else 0.25
+        
+        # ════════════════════════════════════════════════════════════════════════
+        # IMPORTANT: Secondary signals can ONLY UPGRADE, never DOWNGRADE
+        # ════════════════════════════════════════════════════════════════════════
+        # If verdict is FAKE (locked), it CANNOT be changed by any signal
+        # If verdict is REAL, image manipulation can upgrade to SUSPICIOUS
+        # If verdict is SUSPICIOUS, image manipulation only adjusts score
+        # ════════════════════════════════════════════════════════════════════════
+        verdict_locked = auditor_result.get('verdict_locked', False)
+        
+        if not verdict_locked and image_score > 0.7:
+            # Only upgrade REAL to SUSPICIOUS - never touch FAKE
+            combined_score = max(combined_score, 0.6)
+            if verdict == "REAL":
+                verdict = "SUSPICIOUS"
+                risk_level = "Medium Risk"
+                supporting_evidence.append("Image manipulation indicators detected")
         
         from app.risk_reduction import get_risk_reduction_recommendations
-        recommendations = get_risk_reduction_recommendations(invoice_analysis, image_score)
+        recommendations = get_risk_reduction_recommendations(auditor_result, image_score)
 
         result = {
+            # New auditor-style verdict format
+            "verdict": verdict,
+            "confidence": confidence,
+            "primary_reason": primary_reason,
+            "supporting_evidence": supporting_evidence,
+            "analysis_steps": auditor_result.get('analysis_steps', {}),
+            
+            # Legacy compatibility fields
             "final_score": round(combined_score, 3),
             "risk_level": risk_level,
             "filename": file.filename,
             "file_info": file_info,
             "invoice_analysis": {
-                "fraud_indicators": invoice_analysis['fraud_indicators'],
-                "total_flags": invoice_analysis['total_flags'],
-                "severity": invoice_analysis['severity']
+                "fraud_indicators": auditor_result.get('fraud_indicators', []),
+                "total_flags": auditor_result.get('total_flags', 0),
+                "severity": auditor_result.get('severity', 'Low')
             },
             "component_scores": {
-                "invoice_specific": round(heuristic_score, 3),
+                "auditor_analysis": round(auditor_result.get('risk_score', 0.0), 3),
                 "image_manipulation": round(image_score, 3),
-                "document_structure": round(structure_score, 3),
                 "legacy_model": round(tab_score, 3)
             },
             "recommendations": recommendations,
             "document_understanding": {
                 "extracted_fields": doc_fields,
-                "validation_flags": invoice_flags,
-                "validation_score": round(validation_score, 3),
-                "structure_score": round(structure_score, 3)
+                "validation_flags": auditor_result.get('analysis_steps', {}).get('step1_hard_invalidity', {}).get('violations', [])
             },
             "extracted_text": {
                 "easyocr": ocr_data.get('easyocr_text', '')[:200] + "..." if len(ocr_data.get('easyocr_text', '')) > 200 else ocr_data.get('easyocr_text', ''),
@@ -287,7 +352,7 @@ async def analyze_invoice(file: UploadFile, deep_analysis: bool = Query(False, d
         save_cache()
         result["performance"]["cached"] = True
         result["id"] = file_hash
-        result["filename"] = file.filename # Ensure filename is set on fresh processing
+        result["filename"] = file.filename
         result["verification_status"] = REVIEW_STATUS.get(file_hash, {}).get("status", "none")
         return result
         
@@ -300,7 +365,7 @@ async def analyze_invoice(file: UploadFile, deep_analysis: bool = Query(False, d
 
 
 @app.post("/analyze-document")
-async def analyze_document(file: UploadFile, deep_analysis: bool = Query(False)):
+async def analyze_document(file: UploadFile, deep_analysis: bool = Query(True)):
     """
     Universal document analyzer with optimized performance.
     """
@@ -312,7 +377,8 @@ async def analyze_document(file: UploadFile, deep_analysis: bool = Query(False))
         
         file_hash = calculate_file_hash(content)
         if file_hash in RESULTS_CACHE:
-            return RESULTS_CACHE[file_hash]
+             print(f"Ignoring cache for debug: {file.filename}")
+             # return RESULTS_CACHE[file_hash]
             
         path = UPLOAD_DIR / file.filename
         with open(path, "wb") as f:
@@ -326,167 +392,276 @@ async def analyze_document(file: UploadFile, deep_analysis: bool = Query(False))
         
         # Step 2: Detect Type
         from app.document_type_detector import detect_document_type
-        doc_type, confidence = detect_document_type(ocr_data)
+        doc_type, type_confidence = detect_document_type(ocr_data)
         
-        if doc_type == 'invoice':
-            from app.invoice_fraud_detector import analyze_invoice_fraud
-            content_analysis = analyze_invoice_fraud(ocr_data)
-        elif doc_type == 'receipt':
-            from app.receipt_fraud_detector import analyze_receipt_fraud
-            content_analysis = analyze_receipt_fraud(ocr_data)
-        elif doc_type == 'bank_statement':
-            from app.bank_statement_fraud_detector import analyze_bank_statement_fraud
-            content_analysis = analyze_bank_statement_fraud(ocr_data)
-        elif doc_type == 'purchase_order':
-            from app.specialized_fraud_detectors import PurchaseOrderDetector
-            content_analysis = PurchaseOrderDetector().analyze(ocr_data)
-        elif doc_type == 'utility_bill':
-            from app.specialized_fraud_detectors import UtilityBillDetector
-            content_analysis = UtilityBillDetector().analyze(ocr_data)
-        elif doc_type == 'quotation':
-            from app.specialized_fraud_detectors import QuotationDetector
-            content_analysis = QuotationDetector().analyze(ocr_data)
-        elif doc_type == 'payment_proof':
-            from app.specialized_fraud_detectors import PaymentProofDetector
-            content_analysis = PaymentProofDetector().analyze(ocr_data)
-        elif doc_type == 'tax_document':
-            from app.specialized_fraud_detectors import TaxDocumentDetector
-            content_analysis = TaxDocumentDetector().analyze(ocr_data)
-        elif doc_type == 'payroll':
-            from app.specialized_fraud_detectors import PayrollDetector
-            content_analysis = PayrollDetector().analyze(ocr_data)
-        elif doc_type == 'agreement':
-            from app.specialized_fraud_detectors import AgreementDetector
-            content_analysis = AgreementDetector().analyze(ocr_data)
-        else:
-            from app.base_fraud_detector import BaseFinancialDocumentDetector
-            content_analysis = BaseFinancialDocumentDetector().analyze(ocr_data)
+        # Step 3: Use auditor-style detection for invoice-type documents
+        from app.auditor_fraud_detector import analyze_document_auditor
+        
+        # For invoice-type documents, use the professional auditor analysis
+        use_auditor_analysis = doc_type in ['invoice', 'receipt', 'purchase_order', 'quotation', 'unknown']
+        
+        if use_auditor_analysis:
+            # Run parallel tasks for document understanding
+            run_cnn = deep_analysis
+            run_struct = deep_analysis
             
-        heuristic_score = content_analysis.get('risk_score', 0.0)
-        
-        run_cnn = False
-        run_struct = False
-        
-        if deep_analysis:
-            run_cnn = True
-            run_struct = True
-        else:
-             # ALWAYS run CNN to catch synthetic documents that look 'clean' text-wise
-             # Optimized: CNN is fast enough on modern CPUs (approx 2s)
-             run_cnn = True
-             
-             # Run structural analysis for table-heavy documents
-             if doc_type in ['invoice', 'receipt', 'purchase_order', 'unknown']:
-                run_struct = True
-             else:
-                run_struct = False
+            tasks = {}
+            if run_cnn:
+                tasks['cnn'] = loop.run_in_executor(None, image_risk, str(path))
+            if run_struct:
+                tasks['struct'] = loop.run_in_executor(None, extract_invoice_fields, str(path))
+            tasks['tabular'] = loop.run_in_executor(None, tabular_risk, ocr_data)
+            
+            results = {}
+            if tasks:
+                keys = list(tasks.keys())
+                values = list(tasks.values())
+                completed = await asyncio.gather(*values)
+                results = dict(zip(keys, completed))
+            
+            image_score = results.get('cnn', 0.1)
+            doc_fields = results.get('struct', {})
+            tab_score = results.get('tabular', 0.0)
+            
+            # Run professional auditor analysis
+            auditor_result = analyze_document_auditor(ocr_data, doc_fields)
+            
+            # ████████████████████████████████████████████████████████████████████████
+            # ██  EXECUTION GUARD — FINAL AUTHORITY — PRIORITY OVERRIDE            ██
+            # ████████████████████████████████████████████████████████████████████████
+            if auditor_result.get('priority_override_active', False):
+                # EXECUTION TERMINATED — RETURNING LOCKED CLEAN RESULT
+                result = {
+                    "verdict": "REAL",
+                    "confidence": "HIGH",
+                    "primary_reason": auditor_result.get('primary_reason', 'Priority Override: Verified invoice'),
+                    "supporting_evidence": auditor_result.get('supporting_evidence', []),
+                    "priority_override_active": True,
+                    "analysis_steps": auditor_result.get('analysis_steps', {}),
+                    
+                    # FORCED CLEAN VALUES — IMMUTABLE
+                    "final_score": 0.05,
+                    "risk_level": "Low Risk",
+                    "severity": "Clean",
+                    
+                    "document_type": {
+                        "detected_type": doc_type,
+                        "confidence": round(type_confidence, 3),
+                        "description": _get_document_description(doc_type)
+                    },
+                    "filename": file.filename,
+                    "file_info": file_info,
+                    "content_analysis": {
+                        "fraud_indicators": [],  # FORCED EMPTY
+                        "total_flags": 0,
+                        "severity": "Clean"
+                    },
+                    "component_scores": {
+                        "auditor_analysis": 0.05,
+                        "image_manipulation": round(image_score, 3),  # RECORDED but IGNORED
+                        "legacy_model": round(tab_score, 3)
+                    },
+                    "recommendations": [],  # FORCED EMPTY
+                    "document_understanding": {
+                        "extracted_fields": doc_fields,
+                        "validation_flags": []  # FORCED EMPTY
+                    },
+                    "extracted_text": {
+                        "easyocr": ocr_data.get('easyocr_text', '')[:200] + "..." if len(ocr_data.get('easyocr_text', '')) > 200 else ocr_data.get('easyocr_text', ''),
+                        "tesseract": ocr_data.get('tesseract_text', '')[:200] + "..." if len(ocr_data.get('tesseract_text', '')) > 200 else ocr_data.get('tesseract_text', '')
+                    },
+                    "performance": {
+                        "cnn_executed": run_cnn,
+                        "donut_executed": run_struct,
+                        "doc_type": doc_type,
+                        "priority_override_bypass": True,
+                        "execution_terminated": True  # EXPLICIT FLAG
+                    }
+                }
                 
-        tasks = {}
-        if run_cnn:
-            tasks['cnn'] = loop.run_in_executor(None, image_risk, str(path))
+                result["id"] = file_hash
+                result["filename"] = file.filename
+                result["verification_status"] = REVIEW_STATUS.get(file_hash, {}).get("status", "none")
+                RESULTS_CACHE[file_hash] = result
+                save_cache()
+                return result
             
-        if run_struct and doc_type in ['invoice', 'receipt', 'purchase_order']:
-             tasks['struct'] = loop.run_in_executor(None, extract_invoice_fields, str(path))
-             
-        tasks['tabular'] = loop.run_in_executor(None, tabular_risk, ocr_data)
-        
-        results = {}
-        if tasks:
+            # ════════════════════════════════════════════════════════════════════════
+            # NORMAL PROCESSING (only when override NOT active)
+            # ════════════════════════════════════════════════════════════════════════
+            
+            # Extract verdict info
+            verdict = auditor_result.get('verdict', 'SUSPICIOUS')
+            confidence = auditor_result.get('confidence', 'LOW')
+            primary_reason = auditor_result.get('primary_reason', 'Analysis completed')
+            supporting_evidence = auditor_result.get('supporting_evidence', [])
+            
+            # Map verdict to risk level
+            if verdict == "FAKE":
+                risk_level = "High Risk"
+                combined_score = 0.95
+            elif verdict == "SUSPICIOUS":
+                risk_level = "Medium Risk"
+                combined_score = 0.55 if confidence == "MEDIUM" else 0.45
+            else:  # REAL
+                risk_level = "Low Risk"
+                combined_score = 0.15 if confidence == "HIGH" else 0.25
+            
+            # ════════════════════════════════════════════════════════════════════════
+            # IMPORTANT: Secondary signals can ONLY UPGRADE, never DOWNGRADE
+            # ════════════════════════════════════════════════════════════════════════
+            # If verdict is FAKE (locked), it CANNOT be changed by any signal
+            # If verdict is REAL, image manipulation can upgrade to SUSPICIOUS
+            # ════════════════════════════════════════════════════════════════════════
+            verdict_locked = auditor_result.get('verdict_locked', False)
+            
+            if not verdict_locked and image_score > 0.7:
+                # Only upgrade REAL to SUSPICIOUS - never touch FAKE
+                combined_score = max(combined_score, 0.6)
+                if verdict == "REAL":
+                    verdict = "SUSPICIOUS"
+                    risk_level = "Medium Risk"
+                    supporting_evidence.append("Image manipulation indicators detected")
+            
+            from app.risk_reduction import get_risk_reduction_recommendations
+            recommendations = get_risk_reduction_recommendations(auditor_result, image_score)
+            
+            result = {
+                # New auditor-style verdict format
+                "verdict": verdict,
+                "confidence": confidence,
+                "primary_reason": primary_reason,
+                "supporting_evidence": supporting_evidence,
+                "analysis_steps": auditor_result.get('analysis_steps', {}),
+                
+                # Legacy compatibility fields
+                "final_score": round(combined_score, 3),
+                "risk_level": risk_level,
+                "document_type": {
+                    "detected_type": doc_type,
+                    "confidence": round(type_confidence, 3),
+                    "description": _get_document_description(doc_type)
+                },
+                "filename": file.filename,
+                "file_info": file_info,
+                "content_analysis": {
+                    "fraud_indicators": auditor_result.get('fraud_indicators', []),
+                    "total_flags": auditor_result.get('total_flags', 0),
+                    "severity": auditor_result.get('severity', 'Low')
+                },
+                "component_scores": {
+                    "auditor_analysis": round(auditor_result.get('risk_score', 0.0), 3),
+                    "image_manipulation": round(image_score, 3),
+                    "legacy_model": round(tab_score, 3)
+                },
+                "recommendations": recommendations,
+                "document_understanding": {
+                    "extracted_fields": doc_fields,
+                    "validation_flags": auditor_result.get('analysis_steps', {}).get('step1_hard_invalidity', {}).get('violations', [])
+                },
+                "extracted_text": {
+                    "easyocr": ocr_data.get('easyocr_text', '')[:200] + "..." if len(ocr_data.get('easyocr_text', '')) > 200 else ocr_data.get('easyocr_text', ''),
+                    "tesseract": ocr_data.get('tesseract_text', '')[:200] + "..." if len(ocr_data.get('tesseract_text', '')) > 200 else ocr_data.get('tesseract_text', '')
+                },
+                "performance": {
+                    "cnn_executed": run_cnn,
+                    "donut_executed": run_struct,
+                    "doc_type": doc_type
+                }
+            }
+        else:
+            # Use specialized detectors for non-invoice documents
+            if doc_type == 'bank_statement':
+                from app.bank_statement_fraud_detector import analyze_bank_statement_fraud
+                content_analysis = analyze_bank_statement_fraud(ocr_data)
+            elif doc_type == 'utility_bill':
+                from app.specialized_fraud_detectors import UtilityBillDetector
+                content_analysis = UtilityBillDetector().analyze(ocr_data)
+            elif doc_type == 'payment_proof':
+                from app.specialized_fraud_detectors import PaymentProofDetector
+                content_analysis = PaymentProofDetector().analyze(ocr_data)
+            elif doc_type == 'tax_document':
+                from app.specialized_fraud_detectors import TaxDocumentDetector
+                content_analysis = TaxDocumentDetector().analyze(ocr_data)
+            elif doc_type == 'payroll':
+                from app.specialized_fraud_detectors import PayrollDetector
+                content_analysis = PayrollDetector().analyze(ocr_data)
+            elif doc_type == 'agreement':
+                from app.specialized_fraud_detectors import AgreementDetector
+                content_analysis = AgreementDetector().analyze(ocr_data)
+            else:
+                from app.base_fraud_detector import BaseFinancialDocumentDetector
+                content_analysis = BaseFinancialDocumentDetector().analyze(ocr_data)
+            
+            heuristic_score = content_analysis.get('risk_score', 0.0)
+            
+            # Run CNN for all documents
+            tasks = {'cnn': loop.run_in_executor(None, image_risk, str(path))}
+            tasks['tabular'] = loop.run_in_executor(None, tabular_risk, ocr_data)
+            
             keys = list(tasks.keys())
             values = list(tasks.values())
             completed = await asyncio.gather(*values)
             results = dict(zip(keys, completed))
             
-        image_score = results.get('cnn', 0.1)
-        doc_fields = results.get('struct', {})
-        tab_score = results.get('tabular', 0.0)
-        
-        validation_score = 0.0
-        structure_score = 0.2
-        invoice_flags = []
-        
-        if doc_fields:
-            try:
-                if doc_type == 'invoice':
-                    invoice_flags = validate_invoice_fields(doc_fields)
-                    if invoice_flags:
-                        content_analysis.setdefault('fraud_indicators', []).extend(invoice_flags)
-                        content_analysis['total_flags'] = len(content_analysis.get('fraud_indicators', []))
-
-                    for flag in invoice_flags:
-                        if flag["severity"] == "high":
-                            validation_score += 0.25
-                        elif flag["severity"] == "medium":
-                            validation_score += 0.10
-                    validation_score = min(validation_score, 1.0)
-                structure_score = 0.8
-            except:
-                pass
-
-        combined_score = (
-            0.45 * validation_score +
-            0.25 * image_score +
-            0.15 * structure_score +
-            0.10 * tab_score +
-            0.05 * heuristic_score
-        )
-        
-        high_severity = [f for f in content_analysis.get('fraud_indicators', []) if f.get('severity') == 'high']
-        if len(high_severity) >= 1:
-            combined_score = max(combined_score, 0.88)
+            image_score = results.get('cnn', 0.1)
+            tab_score = results.get('tabular', 0.0)
             
-        if combined_score > 0.7:
-            risk_level = "High Risk"
-        elif combined_score > 0.4:
-            risk_level = "Medium Risk"
-        else:
-            risk_level = "Low Risk"
+            combined_score = 0.30 * heuristic_score + 0.40 * image_score + 0.30 * tab_score
             
-        from app.risk_reduction import get_risk_reduction_recommendations
-        recommendations = get_risk_reduction_recommendations(content_analysis, image_score)
-
-        result = {
-            "final_score": round(combined_score, 3),
-            "risk_level": risk_level,
-            "document_type": {
-                "detected_type": doc_type,
-                "confidence": round(confidence, 3),
-                "description": _get_document_description(doc_type)
-            },
-            "filename": file.filename,
-            "file_info": file_info,
-            "content_analysis": {
-                "fraud_indicators": content_analysis.get('fraud_indicators', []),
-                "total_flags": content_analysis.get('total_flags', 0),
-                "severity": content_analysis.get('severity', 'Low')
-            },
-            "component_scores": {
-                "content_specific": round(heuristic_score, 3),
-                "image_manipulation": round(image_score, 3),
-                "document_structure": round(structure_score, 3),
-                "legacy_model": round(tab_score, 3)
-            },
-            "recommendations": recommendations,
-            "document_understanding": {
-                "extracted_fields": doc_fields,
-                "validation_flags": invoice_flags,
-                "validation_score": round(validation_score, 3),
-                "structure_score": round(structure_score, 3)
-            },
-            "extracted_text": {
-                "easyocr": ocr_data.get('easyocr_text', '')[:200] + "..." if len(ocr_data.get('easyocr_text', '')) > 200 else ocr_data.get('easyocr_text', ''),
-                "tesseract": ocr_data.get('tesseract_text', '')[:200] + "..." if len(ocr_data.get('tesseract_text', '')) > 200 else ocr_data.get('tesseract_text', '')
-            },
-            "performance": {
-                "cnn_executed": run_cnn,
-                "donut_executed": run_struct,
-                "doc_type": doc_type
+            if combined_score > 0.7:
+                risk_level = "High Risk"
+                verdict = "SUSPICIOUS"
+                confidence = "HIGH"
+            elif combined_score > 0.4:
+                risk_level = "Medium Risk"
+                verdict = "SUSPICIOUS"
+                confidence = "MEDIUM"
+            else:
+                risk_level = "Low Risk"
+                verdict = "REAL"
+                confidence = "MEDIUM"
+            
+            from app.risk_reduction import get_risk_reduction_recommendations
+            recommendations = get_risk_reduction_recommendations(content_analysis, image_score)
+            
+            result = {
+                "verdict": verdict,
+                "confidence": confidence,
+                "primary_reason": "Analysis based on specialized document detector",
+                "supporting_evidence": [f.get('description', '') for f in content_analysis.get('fraud_indicators', [])[:5]],
+                "final_score": round(combined_score, 3),
+                "risk_level": risk_level,
+                "document_type": {
+                    "detected_type": doc_type,
+                    "confidence": round(type_confidence, 3),
+                    "description": _get_document_description(doc_type)
+                },
+                "filename": file.filename,
+                "file_info": file_info,
+                "content_analysis": {
+                    "fraud_indicators": content_analysis.get('fraud_indicators', []),
+                    "total_flags": content_analysis.get('total_flags', 0),
+                    "severity": content_analysis.get('severity', 'Low')
+                },
+                "component_scores": {
+                    "content_specific": round(heuristic_score, 3),
+                    "image_manipulation": round(image_score, 3),
+                    "legacy_model": round(tab_score, 3)
+                },
+                "recommendations": recommendations,
+                "extracted_text": {
+                    "easyocr": ocr_data.get('easyocr_text', '')[:200] + "..." if len(ocr_data.get('easyocr_text', '')) > 200 else ocr_data.get('easyocr_text', ''),
+                    "tesseract": ocr_data.get('tesseract_text', '')[:200] + "..." if len(ocr_data.get('tesseract_text', '')) > 200 else ocr_data.get('tesseract_text', '')
+                },
+                "performance": {
+                    "cnn_executed": True,
+                    "doc_type": doc_type
+                }
             }
-        }
-        
 
-        result["id"] = file_hash  # Add ID for frontend reference
-        result["filename"] = file.filename # Ensure filename is set
+        result["id"] = file_hash
+        result["filename"] = file.filename
         result["verification_status"] = REVIEW_STATUS.get(file_hash, {}).get("status", "none")
         RESULTS_CACHE[file_hash] = result
         save_cache()

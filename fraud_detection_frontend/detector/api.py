@@ -89,8 +89,14 @@ def api_upload(request):
             # Analyze
             try:
                 # We need the path. Django saves it to disk usually immediately.
+                print(f"DEBUG: Attempting to call FastAPI for file: {evidence.uploaded_file.path}")
                 results = client.analyze_document(evidence.uploaded_file.path)
+                print(f"DEBUG: FastAPI returned results: {results}")
             except Exception as e:
+                import traceback
+                print(f"CRITICAL ERROR - AI BACKEND CONNECTION FAILED: {e}")
+                traceback.print_exc()
+                
                 print(f"AI Backend offline: {e}")
                 results = {
                     'id': 'mock-hash-' + str(evidence.id),

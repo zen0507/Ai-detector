@@ -19,6 +19,7 @@ class FastAPIClient:
             Analysis results from FastAPI
         """
         url = f"{self.base_url}/analyze-document"
+        print(f"DEBUG: FastAPIClient connecting to: {url}")
         
         try:
             with open(file_path, 'rb') as f:

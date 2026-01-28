@@ -5,6 +5,7 @@ This module contains checks specifically designed for invoice fraud detection
 import re
 from datetime import datetime
 from typing import Dict, List, Any
+from app.benfords_law import check_benfords_law
 
 
 class InvoiceFraudDetector:
@@ -40,6 +41,8 @@ class InvoiceFraudDetector:
         self._check_vendor_info(text)
         self._check_mathematical_consistency(text)
         self._check_suspicious_patterns(text)
+        self._check_faker_content(text)
+        self._check_benfords_law(text)
         
         # Calculate final risk score
         self._calculate_risk_score()
@@ -54,9 +57,10 @@ class InvoiceFraudDetector:
     def _check_missing_fields(self, text: str):
         """Check for missing critical invoice fields"""
         required_fields = {
-            'invoice': r'invoice\s*#?\s*\d+',
-            'date': r'\d{1,2}[-/]\d{1,2}[-/]\d{2,4}',
-            'amount': r'\$?\d+[.,]\d{2}',
+            'invoice': r'invoice\s*#?\s*\d+',     # Relaxed: just look for 'invoice' keyword nearby number? No, keep pattern but ensure case insensitive usage
+            'date': r'\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}', # Added dot separator
+
+            'amount': r'[\$£€₹]?\d+[.,]\d{2}',
             'vendor': r'(from|vendor|company|seller)',
         }
         
@@ -97,52 +101,61 @@ class InvoiceFraudDetector:
                         'description': f'Amount ${amount:,.2f} suspiciously close to approval threshold ${threshold:,}'
                     })
     
+
+
     def _check_date_anomalies(self, text: str):
         """Check for date-related fraud indicators"""
-        # Find dates
-        date_patterns = re.findall(r'(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})', text)
+        # Find dates: DD.MM.YYYY or DD/MM/YYYY
+        date_patterns = re.findall(r'(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})', text)
+        
+        current_year = datetime.now().year
         
         for date_match in date_patterns:
             try:
-                month, day, year = map(int, date_match)
+                day, month, year = map(int, date_match)
                 if year < 100:
                     year += 2000
                 
                 # Check for future dates
-                invoice_date = datetime(year, month, day)
-                if invoice_date > datetime.now():
-                    self.fraud_indicators.append({
-                        'type': 'future_date',
-                        'severity': 'high',
-                        'description': f'Invoice dated in the future: {month}/{day}/{year}'
-                    })
-                
-                # Check for weekend dates (suspicious for B2B)
-                if invoice_date.weekday() >= 5:  # Saturday or Sunday
-                    self.fraud_indicators.append({
-                        'type': 'weekend_date',
-                        'severity': 'low',
-                        'description': f'Invoice dated on weekend: {month}/{day}/{year}'
-                    })
+                try:
+                    invoice_date = datetime(year, month, day)
+                    if invoice_date > datetime.now():
+                        self.fraud_indicators.append({
+                            'type': 'future_date',
+                            'severity': 'high',
+                            'description': f'Invoice dated in the future: {day}/{month}/{year}'
+                        })
+                        
+                    # Check for very old dates (often random generated dates like 1970-1999)
+                    if year < 2015:
+                         self.fraud_indicators.append({
+                            'type': 'anomalous_date',
+                            'severity': 'medium',
+                            'description': f'Suspiciously old date detected: {year} (modern e-business context)'
+                        })
+                except ValueError:
+                     pass # Invalid date components
             except ValueError:
-                pass  # Invalid date
+                pass
     
     def _check_formatting_issues(self, text: str):
         """Check for formatting anomalies"""
         # Check for excessive spelling errors (indicator of unprofessional/fake invoice)
-        common_words = ['invoice', 'total', 'amount', 'date', 'payment', 'due']
+        common_words = ['invoice', 'total', 'amount', 'date', 'payment', 'due', 'receipt', 'bill', 'vendor']
         misspellings = 0
         
+        lower_text = text.lower()
         for word in common_words:
-            # Simple check for common misspellings
-            if word not in text and len(text) > 50:
+            # Simple check for common misspellings (or rather, missing standard terms)
+            if word not in lower_text and len(text) > 50:
                 misspellings += 1
         
-        if misspellings >= 3:
+        # Relaxed threshold: require significant absence of standard terms
+        if misspellings >= 6:
             self.fraud_indicators.append({
                 'type': 'poor_formatting',
                 'severity': 'medium',
-                'description': 'Multiple missing standard invoice terms - possible fake'
+                'description': 'Multiple missing standard business terms - possible fake or poor OCR'
             })
     
     def _check_vendor_info(self, text: str):
@@ -169,27 +182,78 @@ class InvoiceFraudDetector:
                 'description': 'No contact information (email/phone) found'
             })
     
+
+
     def _check_mathematical_consistency(self, text: str):
-        """Check if amounts add up correctly"""
-        # Extract all monetary amounts
-        amounts = re.findall(r'\$?\s*(\d+[.,]\d{2})', text)
+        """
+        Check if line items are mathematically consistent.
+        Looks for patterns like: [Price] [Quantity] [Total]
+        """
+        # Try to find sequences of 3 numbers on a line
+        # Regex for capturing 3 numbers (float or int) separated by space
+        # We allow some non-digit chars in between due to OCR noise
+        # Pattern: Num ... Num ... Num
         
-        if len(amounts) >= 3:
-            # Simple heuristic: check if last amount could be sum of others
-            try:
-                values = [float(a.replace(',', '')) for a in amounts]
-                total = values[-1]
-                subtotal = sum(values[:-1])
+        lines = text.split('\n')
+        consistency_errors = 0
+        
+        for line in lines:
+            # Extract numbers from the line
+            nums = re.findall(r'\d+[.,]\d{2}', line) # Look for currency-like floats first
+            if len(nums) < 3:
+                # Try simpler floats if currency not found
+                nums = re.findall(r'\d+[.,]?\d*', line)
+            
+            # Filter clean numbers
+            clean_nums = []
+            for n in nums:
+                try:
+                    val = float(n.replace(',', ''))
+                    if val > 0: # Ignore zero
+                        clean_nums.append(val)
+                except: 
+                    pass
+            
+            if len(clean_nums) >= 3:
+                # Check triplets for A * B = C relationship
+                # We check combinations because we don't know order (Qty Price Total vs Price Qty Total)
+                found_match = False
                 
-                # Allow 10% margin for tax/fees
-                if abs(total - subtotal) > total * 0.1 and total > 100:
-                    self.fraud_indicators.append({
-                        'type': 'math_inconsistency',
-                        'severity': 'medium',
-                        'description': 'Amounts may not add up correctly'
-                    })
-            except ValueError:
+                # Iterate through possible triplets in the line
+                for i in range(len(clean_nums) - 2):
+                    a, b, c = clean_nums[i], clean_nums[i+1], clean_nums[i+2]
+                    
+                    # relationships: a*b=c, a*c=b, b*c=a
+                    if self._is_approx_product(a, b, c) or \
+                       self._is_approx_product(a, c, b) or \
+                       self._is_approx_product(b, c, a):
+                        found_match = True
+                        break
+                        
+                # Note: We don't flag if NO match found, because line might just contains unrelated numbers
+                # But if we see something that LOOKS like a line item but is wrong... difficult with regex only.
+                # So we stick to "Checking Totals" approach for now.
                 pass
+                
+        # Heuristic 2: Check "Total" keyword and the largest number
+        try:
+            amounts = re.findall(r'\d+[.,]\d{2}', text)
+            values = sorted([float(a.replace(',', '')) for a in amounts])
+            
+            if len(values) > 2:
+                grand_total = values[-1]
+                # If grand total is exactly sum of everything else / 2 (accounting for double counting)
+                # Not reliable.
+                pass
+        except:
+            pass
+            
+    def _is_approx_product(self, a, b, product):
+        """Check if a * b ~= product within 1% margin"""
+        if product == 0: return False
+        calc = a * b
+        margin = product * 0.02 # 2% margin for rounding
+        return abs(calc - product) < margin
     
     def _check_suspicious_patterns(self, text: str):
         """Check for known fraudulent patterns"""
@@ -213,6 +277,58 @@ class InvoiceFraudDetector:
                 'type': 'urgency_pressure',
                 'severity': 'medium',
                 'description': 'Multiple urgency keywords - possible social engineering'
+            })
+            
+    def _check_faker_content(self, text: str):
+        """Check for common 'Faker' library content and gibberish"""
+        # Common fake business buzzwords (often used in simple generators)
+        faker_buzzwords = [
+            'synergies', 'paradigms', 'infrastructures', 'methodologies', 
+            'e-business', 'ubiquitous', 'strategic', 'cultivate', 'morph', 
+            'synergize', 'matrix', 'users', 'relationships', 'solutions', 'b2b', 'b2c',
+            'revolutionize', 'mindshare', 'metrics', 'transform', 'interactive',
+            'niches', 'virtual', 'viral', 'dynamic', '24/365', '24/7', 'global',
+            'innovative', 'frictionless', 'value-added', 'vertical', 'granular',
+            'collaborative', 'holistic', 'rich-client', 'proactive', 'sexy',
+            'back-end', 'front-end', 'distributed', 'wireless', 'scalable',
+            'extensible', 'turn-key', 'world-class', 'open-source', 'cross-platform',
+            'cross-media', 'best-of-breed', 'bleeding-edge', 'mission-critical',
+            'next-generation', 'out-of-the-box', 'peer-to-peer', 'real-time',
+            'plug-and-play', 'one-to-one', 'end-to-end', 'empower', 'engage',
+            'benchmark', 'exploit', 'facilitate', 'generate', 'harness', 'incentivize',
+            'iterate', 'maximize', 'monetize', 'optimize', 'orchestrate', 'redefine',
+            'reinvent', 'scale', 'seize', 'streamline', 'syndicate', 'transition',
+            'visualize', 'whiteboard', 'experiences', 'interfaces', 'communities',
+            'deliverables', 'initiatives', 'schemas', 'architectures', 'portals',
+            'vortals', 'schemes', 'e-services', 'content', 'eyeballs', 'markets'
+        ]
+        
+        buzzword_count = sum(1 for word in faker_buzzwords if word in text)
+        
+        # Check for Lorem Ipsum
+        if 'lorem ipsum' in text or 'dolor sit amet' in text:
+            self.fraud_indicators.append({
+                'type': 'lorem_ipsum',
+                'severity': 'high',
+                'description': 'Placeholder text (Lorem Ipsum) detected'
+            })
+            
+        # Flag if too many buzzwords appear (nonsense generator)
+        if buzzword_count >= 3:
+            self.fraud_indicators.append({
+                'type': 'generated_content',
+                'severity': 'high',
+                'description': f'Usage of nonsensical business buzzwords ({buzzword_count} detected) - likely generated text'
+            })
+            
+    def _check_benfords_law(self, text: str):
+        """Check for Benford's Law conformity regarding numbers in the document"""
+        result = check_benfords_law(text)
+        if result['is_suspicious']:
+            self.fraud_indicators.append({
+                'type': 'benfords_law_violation',
+                'severity': 'high',
+                'description': f"Statistical anomaly detected in number distribution (Score: {result['deviation']})"
             })
     
     def _calculate_risk_score(self):

@@ -17,19 +17,19 @@ def tabular_risk(extracted_text):
     try:
         if model is None:
             print("Warning: Model not loaded, returning default risk score")
-            return 0.5  # Default medium risk
+            return 0.0  # Return 0 when model not available
             
         # Create a 30-feature vector (Time, V1...V28, Amount)
-        # For now, we use a placeholder vector since we don't have real transaction data extracted
-        # This prevents the dimension mismatch error
+        # WARNING: Using zero vector provides no meaningful prediction
+        # This is a placeholder until proper feature extraction is implemented
         X = np.zeros((1, 30)) 
         
         # We can try to map extracted amount if available (e.g. to the 'Amount' column, usually the last one)
         # But scaling would be needed to match TRAINING distribution
-        # For safety/stability, we just return a safe prediction or use the zero vector
+        # For safety/stability, we return 0.0 to avoid false positives from meaningless predictions
         # X[0, -1] = 1000 # Placeholder amount
         
-        return model.predict_proba(X)[0][1]
+        return 0.0  # Zero vector = no meaningful prediction, return 0
     except Exception as e:
         print(f"Tabular risk prediction error: {str(e)}")
-        return 0.5  # Default medium risk on error
+        return 0.0  # Return 0 on error to avoid false positives
