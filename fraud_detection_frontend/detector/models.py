@@ -97,6 +97,9 @@ class ForensicReview(models.Model):
     reviewer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviews_conducted')
     reviewed_at = models.DateTimeField(auto_now=True)
     
+    # Advanced metadata: stored as JSON to handle confidence, review time, and flags
+    review_metadata = models.JSONField(default=dict, blank=True, help_text="Stores expert confidence, session time, and specialized flags")
+    
     notes = models.TextField(blank=True, help_text="Expert notes on the verdict")
     
     class Meta:
@@ -105,3 +108,35 @@ class ForensicReview(models.Model):
 
     def __str__(self):
         return f"Review for {self.evidence.filename}: {self.status}"
+# 4. User Profile (Roles & Identity)
+class UserProfile(models.Model):
+    """Extends the base Django User with forensic roles"""
+    
+    ROLE_CHOICES = [
+        ('auditor', 'Auditor'),
+        ('forensic_expert', 'Forensic Expert'),
+        ('admin', 'Admin'),
+    ]
+    
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='auditor')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name = 'User Profile'
+        verbose_name_plural = 'User Profiles'
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.role.upper()}"
+
+    def save(self, *args, **kwargs):
+        """
+        Model-level protection: 
+        Only the Admin panel (is_staff users) should be able to assign 
+        'forensic_expert' or 'admin' roles.
+        """
+        # If the instance is being created or changed
+        # We can't easily check for 'request' here, so we rely on the 
+        # API view for public-facing protection, and the Admin panel 
+        # for controlled setting.
+        super().save(*args, **kwargs)

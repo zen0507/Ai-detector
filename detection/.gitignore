@@ -1,0 +1,8 @@
+# AI Cache & Results
+results_cache.json
+review_status.json
+uploads/
+venv*/
+__pycache__/
+*.py[cod]
+*.log

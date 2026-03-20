@@ -1,357 +1,386 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, Database, ShieldAlert, Clock, ArrowUpRight, Search } from 'lucide-react';
-import { Card, Table, TableHead, TableBody, TableRow, TableCell, TableHeadCell, Badge, Progress, Button } from 'flowbite-react';
+import { Activity, Database, Shield, FileText, AlertOctagon, ShieldCheck, ChevronRight, Upload } from 'lucide-react';
+import {
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts';
 
 const API_BASE = 'http://localhost:8000';
+// NOTE: Daily upload counts endpoint needed: GET /detector/api/daily-stats/?days=14
+// NOTE: Score distribution endpoint needed: GET /detector/api/score-distribution/
+//   Returns: { buckets: [{ range: "0-10%", count: 4 }, ...] }
 
-const container = {
-    hidden: { opacity: 0 },
-    show: {
-        opacity: 1,
-        transition: {
-            staggerChildren: 0.1
-        }
-    }
+const CHART_TOOLTIP = {
+  contentStyle: {
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border-default)',
+    borderRadius: 10,
+    color: 'var(--text-primary)',
+    fontSize: 12,
+  },
+  labelStyle: { color: 'var(--text-muted)', fontFamily: 'monospace' },
 };
 
-const item = {
-    hidden: { opacity: 0, y: 20 },
-    show: { opacity: 1, y: 0 }
+const DONUT_COLORS = { REAL: '#3B6D11', SUSPICIOUS: '#BA7517', FAKE: '#A32D2D' };
+
+const VerdictBadge = ({ verdict }) => {
+  const map = {
+    REAL:        'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    SUSPICIOUS:  'bg-amber-500/15  text-amber-400  border-amber-500/30',
+    FAKE:        'bg-red-500/15    text-red-400    border-red-500/30',
+    'HIGH RISK': 'bg-red-500/15   text-red-400    border-red-500/30',
+    WARNING:     'bg-amber-500/15  text-amber-400  border-amber-500/30',
+    SAFE:        'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    VERIFIED:    'bg-[#534AB7]/15  text-[#7F77DD] border-[#534AB7]/30',
+    PENDING:     'bg-slate-500/15  text-slate-400 border-slate-500/30',
+  };
+  return (
+    <span className={`px-2.5 py-1 rounded-md text-[10px] uppercase font-bold tracking-widest border ${map[verdict] || map.PENDING}`}>
+      {verdict}
+    </span>
+  );
 };
 
-const Dashboard = ({ user }) => {
-    const [stats, setStats] = useState([]);
-    const [recentCases, setRecentCases] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [isRefreshing, setIsRefreshing] = useState(false);
+// Histogram bar color based on score range
+const histogramBarColor = (rangeStr) => {
+  const low = parseInt(rangeStr);
+  if (low >= 70) return '#ef4444';
+  if (low >= 40) return '#f59e0b';
+  return '#22c55e';
+};
 
-    useEffect(() => {
-        fetchData();
-        // Live Polling every 15 seconds
-        const interval = setInterval(() => {
-            fetchData(true);
-        }, 15000);
-        return () => clearInterval(interval);
-    }, []);
+const DonutCenterLabel = ({ cx, cy, total }) => (
+  <text textAnchor="middle" dominantBaseline="middle">
+    <tspan x={cx} y={cy - 6} fontSize={22} fontWeight={700} fill="var(--text-primary)">{total}</tspan>
+    <tspan x={cx} y={cy + 14} fontSize={9} fill="var(--text-muted)" letterSpacing="2">DOCS</tspan>
+  </text>
+);
 
-    const fetchData = async (silent = false) => {
-        if (!silent) setLoading(true);
-        else setIsRefreshing(true);
+const Dashboard = ({ user, onViewChange }) => {
+  const [stats, setStats]           = useState(null);
+  const [dailyData, setDailyData]   = useState([]);
+  const [recentDocs, setRecentDocs] = useState([]);
+  const [storage, setStorage]       = useState(null);
+  const [scoreHist, setScoreHist]   = useState([]);
+  const [loading, setLoading]       = useState(true);
 
-        try {
-            const response = await fetch(`${API_BASE}/detector/api/dashboard/`, { credentials: 'include' });
-            const data = await response.json();
-            if (data.stats) setStats(data.stats);
-            if (data.recent_cases) setRecentCases(data.recent_cases);
-        } catch {
-            console.error("Failed to fetch dashboard");
-            // Fallback for demo if API fails
-            setStats([
-                { label: 'Total Analyses', value: '1,284' },
-                { label: 'Fabrications Detected', value: '42' },
-                { label: 'Clearance Rate', value: '98.5%' },
-            ]);
-        } finally {
-            setLoading(false);
-            setIsRefreshing(false);
-        }
-    };
+  useEffect(() => {
+    loadAll();
+    const interval = setInterval(loadAll, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
-    // Dynamic Threat Level Logic
-    const highRiskStat = stats.find(s => s.label === 'High Risk Found');
-    const highRiskCount = highRiskStat ? parseInt(highRiskStat.value.replace(/,/g, '')) : 0;
+  const loadAll = async () => {
+    try {
+      const [statsRes, docsRes, storageRes] = await Promise.all([
+        fetch(`${API_BASE}/detector/api/stats/`,   { credentials: 'include' }),
+        fetch(`${API_BASE}/detector/api/recent/`,  { credentials: 'include' }),
+        fetch(`${API_BASE}/detector/api/storage/`, { credentials: 'include' }),
+      ]);
+      const [s, d, st] = await Promise.all([statsRes.json(), docsRes.json(), storageRes.json()]);
+      if (s.success)  setStats(s);
+      if (d.success)  setRecentDocs(d.documents);
+      if (st.success) setStorage(st);
+    } catch (e) { console.error('Dashboard load failed', e); }
 
-    let threatLevel = 'LOW';
-    let threatColor = 'text-cyan-400';
-    let threatBorder = 'border-cyan-500/50';
-    let threatBg = 'bg-cyan-500/10';
+    // Try fetching daily chart data
+    try {
+      const res = await fetch(`${API_BASE}/detector/api/daily-stats/?days=14`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.data) setDailyData(data.data);
+      }
+    } catch { /* endpoint may not be available yet */ }
 
-    if (highRiskCount > 0) {
-        threatLevel = 'ELEVATED';
-        threatColor = 'text-amber-400';
-        threatBorder = 'border-amber-500/50';
-        threatBg = 'bg-amber-500/10';
-    }
-    if (highRiskCount >= 3) {
-        threatLevel = 'CRITICAL';
-        threatColor = 'text-red-500';
-        threatBorder = 'border-red-500/50';
-        threatBg = 'bg-red-500/10';
-    }
+    // Try score distribution
+    try {
+      const res = await fetch(`${API_BASE}/detector/api/score-distribution/`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.buckets) setScoreHist(data.buckets);
+      }
+    } catch { /* endpoint may not be available yet */ }
 
-    return (
-        <div className="space-y-8 text-slate-600 dark:text-slate-200">
-            <header className="flex justify-between items-end mb-8 relative">
-                <div>
-                    <h2 className="text-4xl font-bold text-slate-900 dark:text-white mb-2 tracking-tight flex items-center gap-3">
-                        Live Analytics
-                        {isRefreshing && <div className="w-2 h-2 rounded-full bg-neon-cyan animate-ping" />}
-                    </h2>
-                    <p className="text-slate-500 dark:text-slate-400 font-medium">System overview and threat monitoring</p>
-                </div>
-                <div className="flex flex-col items-end gap-3">
-                    {user?.is_superuser && (
-                        <button
-                            onClick={() => window.open(`${API_BASE}/admin/`, '_blank')}
-                            className="btn-ghost px-4 py-2 text-xs uppercase"
-                        >
-                            <ShieldAlert size={14} /> Admin Console
-                        </button>
-                    )}
-                    <div className="glass-panel px-4 py-1.5 flex items-center gap-2 bg-slate-100 dark:bg-black/20 border-slate-200 dark:border-white/5">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                        <span className="text-xs font-mono text-emerald-600 dark:text-emerald-400 font-bold tracking-widest">LIVE CONNECTION</span>
-                    </div>
-                </div>
-            </header>
+    setLoading(false);
+  };
 
-            {loading ? (
-                <div className="h-64 flex items-center justify-center">
-                    <div className="flex flex-col items-center gap-4">
-                        <div className="w-12 h-12 border-4 border-white/10 border-t-neon-violet rounded-full animate-spin"></div>
-                        <span className="text-slate-400 font-mono text-sm uppercase tracking-widest animate-pulse">Decrypting Stream...</span>
-                    </div>
-                </div>
-            ) : (
-                <motion.div
-                    variants={container}
-                    initial="hidden"
-                    animate="show"
-                    className="grid grid-cols-1 md:grid-cols-4 gap-6"
-                >
-                    {/* Stats Cards */}
-                    {stats.map((stat, idx) => (
-                        <motion.div
-                            key={idx}
-                            variants={item}
-                            whileHover={{ y: -5 }}
-                        >
-                            <div className="glass-panel h-full p-6 border-l-4 border-l-neon-violet flex flex-col justify-between group hover:bg-white/5 transition-colors">
-                                <div className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider mb-2 group-hover:text-indigo-600 dark:group-hover:text-neon-violet transition-colors">{stat.label}</div>
-                                <div className="text-3xl font-mono flex items-baseline gap-2 text-slate-900 dark:text-white group-hover:text-shadow-glow transition-all">
-                                    {stat.value}
-                                    {idx === 0 && <span className="text-xs text-emerald-500 dark:text-emerald-400 font-sans font-normal flex items-center">+12% <ArrowUpRight size={12} /></span>}
-                                </div>
-                            </div>
-                        </motion.div>
-                    ))}
+  const riskLevel = (() => {
+    if (!stats) return { label: 'LOW', color: 'text-emerald-400', border: 'border-emerald-500/40', bg: 'bg-emerald-500/10' };
+    if (stats.fake >= 3) return { label: 'CRITICAL', color: 'text-red-400',    border: 'border-red-500/40',    bg: 'bg-red-500/10'    };
+    if (stats.fake > 0)  return { label: 'ELEVATED', color: 'text-amber-400',  border: 'border-amber-500/40',  bg: 'bg-amber-500/10'  };
+    return { label: 'LOW', color: 'text-emerald-400', border: 'border-emerald-500/40', bg: 'bg-emerald-500/10' };
+  })();
 
-                    <motion.div variants={item}>
-                        <div className="glass-panel h-full p-6 border-l-4 border-l-emerald-500 flex flex-col justify-between relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-4 opacity-30">
-                                <div className="w-24 h-24 bg-emerald-500/30 blur-3xl rounded-full animate-pulse"></div>
-                            </div>
-                            <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2 relative z-10">System Status</div>
-                            <div className="text-3xl font-mono text-emerald-400 relative z-10 flex items-center gap-3">
-                                <span className="relative flex h-3 w-3">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                                </span>
-                                OPTIMAL
-                            </div>
-                        </div>
-                    </motion.div>
+  const docsUsedPct = storage ? Math.min(Math.round((storage.documents_mb / 100) * 100), 100) : 0;
+  const reportsPct  = storage ? Math.min(Math.round((storage.reports_mb   / 10)  * 100), 100) : 0;
 
-                    {/* Main Content Area - Table */}
-                    <div className="md:col-span-3">
-                        <motion.div variants={item} className="h-full min-h-[500px]">
-                            <div className="glass-panel h-full overflow-hidden flex flex-col">
-                                <div className="p-6 border-b border-slate-200 dark:border-white/5 flex justify-between items-center bg-slate-50/50 dark:bg-black/20">
-                                    <h3 className="font-bold flex items-center gap-2 text-slate-800 dark:text-white text-lg">
-                                        <Activity className="text-indigo-600 dark:text-neon-violet" size={20} />
-                                        Incoming Data Stream
-                                    </h3>
-                                    <div className="flex gap-2">
-                                        <button className="p-2 hover:bg-slate-200 dark:hover:bg-white/10 rounded-lg text-slate-500 dark:text-slate-400 transition-colors"><Search size={18} /></button>
-                                    </div>
-                                </div>
+  // Donut data from stats
+  const donutData = useMemo(() => [
+    { name: 'REAL',       value: stats?.real      ?? stats?.low_risk    ?? 0 },
+    { name: 'SUSPICIOUS', value: stats?.suspicious ?? stats?.medium_risk ?? 0 },
+    { name: 'FAKE',       value: stats?.fake       ?? stats?.high_risk   ?? 0 },
+  ].filter(d => d.value > 0), [stats]);
 
-                                {/* Visual Trend */}
-                                <div className="px-6 py-4 bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5">
-                                    <div className="flex justify-between items-end mb-2">
-                                        <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-neon-violet">Activity Volume (24h)</h4>
-                                        <span className="text-xs font-mono text-emerald-500 dark:text-emerald-400">+12.5% increase</span>
-                                    </div>
-                                    <TrendChart />
-                                </div>
+  const totalDocs = stats?.total ?? 0;
 
-                                <div className="overflow-x-auto flex-1">
-                                    <Table hoverable className="bg-transparent text-slate-600 dark:text-slate-300">
-                                        <TableHead className="bg-slate-100 dark:bg-black/20 text-slate-500 dark:text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-white/5">
-                                            <TableRow className="border-b border-slate-200 dark:border-white/5">
-                                                <TableHeadCell className="p-6 bg-transparent text-xs">Case ID</TableHeadCell>
-                                                <TableHeadCell className="p-6 bg-transparent text-xs">Timestamp</TableHeadCell>
-                                                <TableHeadCell className="p-6 bg-transparent text-xs">Verdict</TableHeadCell>
-                                                <TableHeadCell className="p-6 bg-transparent text-xs">Analysis Score</TableHeadCell>
-                                            </TableRow>
-                                        </TableHead>
-                                        <TableBody className="divide-y divide-white/5">
-                                            {recentCases.map((caseItem) => (
-                                                <TableRow key={caseItem.id} className="bg-transparent hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group cursor-default border-slate-200 dark:border-white/5">
-                                                    <TableCell className="p-6 font-mono text-sm text-indigo-600 dark:text-neon-cyan group-hover:text-indigo-800 dark:group-hover:text-white font-bold transition-colors">
-                                                        {caseItem.id}
-                                                    </TableCell>
-                                                    <TableCell className="p-6 text-sm text-slate-500 dark:text-slate-400">
-                                                        <div className="flex items-center gap-2">
-                                                            <Clock size={14} className="text-slate-400 dark:text-slate-500" />
-                                                            {caseItem.date}
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="p-6">
-                                                        <StatusBadge status={caseItem.status} />
-                                                    </TableCell>
-                                                    <TableCell className="p-6">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="w-32 bg-slate-200 dark:bg-white/10 rounded-full h-1.5 overflow-hidden">
-                                                                <div
-                                                                    className={`h-full rounded-full ${caseItem.risk > 80 ? 'bg-red-500' : caseItem.risk > 40 ? 'bg-amber-400' : 'bg-emerald-400'}`}
-                                                                    style={{ width: `${caseItem.risk}%` }}
-                                                                ></div>
-                                                            </div>
-                                                            <span className="font-mono text-xs text-slate-900 dark:text-white font-bold">{caseItem.risk}%</span>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                    {recentCases.length === 0 && (
-                                        <div className="p-12 text-center text-slate-500 italic">No recent activity detected.</div>
-                                    )}
-                                </div>
-                            </div>
-                        </motion.div>
-                    </div>
+  // Build total volume data from daily_data if available (single purple series)
+  const volumeData = useMemo(() => dailyData.map(d => ({
+    date: d.date,
+    count: (d.REAL || 0) + (d.SUSPICIOUS || 0) + (d.FAKE || 0),
+  })), [dailyData]);
 
-                    {/* Side Feed */}
-                    <div className="md:col-span-1 space-y-6">
-                        <motion.div variants={item}>
-                            <div className="glass-panel p-6 relative overflow-hidden">
-                                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4 flex items-center gap-2 relative z-10">
-                                    <ShieldAlert size={14} /> Threat Level
-                                </h4>
-                                <div className="absolute top-0 right-0 p-12 opacity-20 pointer-events-none">
-                                    <div className={`w-36 h-36 ${threatBg.replace('/10', '/30')} blur-3xl rounded-full`}></div>
-                                </div>
-
-                                <div className="relative h-32 flex items-center justify-center">
-                                    {/* Simulated Radar */}
-                                    <div className={`absolute inset-0 rounded-full border ${threatBorder.replace('/50', '/20')} animate-scale-pulse`}></div>
-                                    <div className={`absolute inset-4 rounded-full border ${threatBorder.replace('/50', '/20')} animate-scale-pulse animation-delay-500`}></div>
-                                    <div className={`w-24 h-24 rounded-full ${threatBg} flex items-center justify-center border ${threatBorder} transition-colors duration-500 shadow-lg backdrop-blur-md`}>
-                                        <span className={`text-xl font-bold ${threatColor} tracking-tight`}>{threatLevel}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </motion.div>
-
-                        <motion.div variants={item}>
-                            <div className="glass-panel p-6">
-                                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-6 flex items-center gap-2">
-                                    <Database size={14} /> System Storage
-                                </h4>
-                                <div className="space-y-6">
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 font-medium">
-                                            <span>Encrypted Logs</span>
-                                            <span className="text-slate-900 dark:text-white">45%</span>
-                                        </div>
-                                        <div className="w-full bg-slate-200 dark:bg-white/10 rounded-full h-1.5 flex justify-start">
-                                            <div className="h-full rounded-full bg-cyan-500 dark:bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]" style={{ width: '45%' }}></div>
-                                        </div>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 font-medium">
-                                            <span>Evidence Blobs</span>
-                                            <span className="text-slate-900 dark:text-white">72%</span>
-                                        </div>
-                                        <div className="w-full bg-slate-200 dark:bg-white/10 rounded-full h-1.5 flex justify-start">
-                                            <div className="h-full rounded-full bg-purple-500 dark:bg-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.5)]" style={{ width: '72%' }}></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </motion.div>
-                    </div>
-                </motion.div>
-            )}
+  return (
+    <div className="space-y-8 text-[var(--text-secondary)] pb-12 transition-colors duration-300">
+      <div className="flex items-end justify-between">
+        <div>
+          <h2 className="text-3xl font-bold text-[var(--text-primary)] tracking-tight">Live Analytics</h2>
+          <p className="text-[var(--text-muted)] mt-1 text-sm">Real-time document upload and verdict monitoring</p>
         </div>
-    );
-};
+      </div>
 
-const StatusBadge = ({ status }) => {
-    let colorClass = "bg-slate-500/20 text-slate-300 border-slate-500/30";
-    if (status === 'HIGH RISK') colorClass = "bg-red-500/10 text-red-500 border-red-500/30 shadow-[0_0_10px_rgba(239,68,68,0.2)]";
-    if (status === 'WARNING') colorClass = "bg-amber-500/10 text-amber-500 border-amber-500/30";
-    if (status === 'SAFE') colorClass = "bg-emerald-500/10 text-emerald-500 border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]";
-    if (status === 'VERIFIED') colorClass = "bg-blue-500/10 text-blue-500 border-blue-500/30";
+      {/* Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {[
+          { label: 'Total Documents', val: stats?.total ?? '—', icon: FileText,    color: '#534AB7' },
+          { label: 'Fake Detected',   val: stats?.fake  ?? '—', icon: AlertOctagon, color: '#ef4444' },
+          { label: 'Clearance Rate',  val: stats ? `${stats.clearance_rate}%` : '—', icon: ShieldCheck, color: '#10b981' },
+          { label: 'System Status',   val: 'OPTIMAL',            icon: Activity,    color: '#10b981', isStatus: true },
+        ].map(({ label, val, icon: Icon, color, isStatus }, idx) => (
+          <motion.div key={label}
+            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.06 }}
+            className="glass-panel p-6 flex flex-col justify-between hover:shadow-[0_0_20px_rgba(83,74,183,0.15)] transition-all"
+            style={{ border: '1px solid var(--border-default)' }}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">{label}</span>
+              <Icon size={16} style={{ color }} />
+            </div>
+            <div className={`text-2xl font-mono font-bold ${isStatus ? 'flex items-center gap-2' : ''}`}
+              style={{ color: isStatus ? color : 'var(--text-primary)' }}>
+              {isStatus && (
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                </span>
+              )}
+              {val}
+            </div>
+          </motion.div>
+        ))}
+      </div>
 
-    return (
-        <span className={`px-2.5 py-1 rounded-md text-[10px] uppercase font-bold tracking-widest border ${colorClass}`}>
-            {status}
-        </span>
-    )
-}
-
-const TrendChart = ({ data }) => {
-    // Simulated data if none provided
-    const chartData = data || [40, 65, 55, 80, 70, 90, 85, 100, 95, 110, 105, 120];
-    const max = Math.max(...chartData);
-    const min = Math.min(...chartData);
-
-    // Generate path
-    const points = chartData.map((val, i) => {
-        const x = (i / (chartData.length - 1)) * 100;
-        const y = 100 - ((val - min) / (max - min)) * 100;
-        return `${x},${y}`;
-    }).join(' ');
-
-    return (
-        <div className="w-full h-24 relative overflow-hidden rounded-xl">
-            <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible preserve-3d" preserveAspectRatio="none">
+      {/* Main chart area */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* FIX 5 ADD: Daily Volume Area Chart — 3 cols */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+          className="lg:col-span-3 glass-panel p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="font-bold text-[var(--text-primary)] flex items-center gap-2">
+              <Activity size={18} style={{ color: '#7F77DD' }} /> Daily Document Volume — Last 14 Days
+            </h3>
+          </div>
+          {loading || volumeData.length === 0 ? (
+            <div className="h-56 flex items-center justify-center text-[var(--text-muted)] text-sm italic">
+              {loading ? 'Loading chart data...' : (
+                <span>No activity yet.{' '}
+                  <span className="text-[#7F77DD] font-semibold cursor-pointer" onClick={() => onViewChange?.('upload')}>
+                    Upload a document
+                  </span>{' '}to see trends.
+                </span>
+              )}
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={volumeData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                 <defs>
-                    <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#818cf8" stopOpacity="0.4" />
-                        <stop offset="100%" stopColor="#818cf8" stopOpacity="0" />
-                    </linearGradient>
+                  <linearGradient id="gVol" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#534AB7" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#534AB7" stopOpacity={0} />
+                  </linearGradient>
                 </defs>
-                <motion.path
-                    d={`M0,100 ${points} L100,100 Z`}
-                    fill="url(#chartGradient)"
-                    initial={{ opacity: 0, pathLength: 0 }}
-                    animate={{ opacity: 1, pathLength: 1 }}
-                    transition={{ duration: 1.5, ease: "easeInOut" }}
-                />
-                <motion.polyline
-                    points={points}
-                    fill="none"
-                    stroke="#818cf8"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    vectorEffect="non-scaling-stroke"
-                    initial={{ pathLength: 0 }}
-                    animate={{ pathLength: 1 }}
-                    transition={{ duration: 1.5, ease: "easeInOut" }}
-                />
-                {/* Glow effect duplicate */}
-                <motion.polyline
-                    points={points}
-                    fill="none"
-                    stroke="#818cf8"
-                    strokeWidth="4"
-                    strokeLinecap="round"
-                    strokeOpacity="0.3"
-                    className="blur-sm"
-                    vectorEffect="non-scaling-stroke"
-                    initial={{ pathLength: 0 }}
-                    animate={{ pathLength: 1 }}
-                    transition={{ duration: 1.5, ease: "easeInOut" }}
-                />
-            </svg>
+                <CartesianGrid stroke="var(--border-default)" strokeOpacity={0.5} strokeDasharray="3 3" />
+                <XAxis dataKey="date" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip {...CHART_TOOLTIP} />
+                <Area type="monotone" dataKey="count" stroke="#534AB7" fill="url(#gVol)" strokeWidth={2}
+                  dot={{ r: 3, fill: '#534AB7', strokeWidth: 0 }}
+                  isAnimationActive={true} animationDuration={600} name="Documents" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </motion.div>
+
+        {/* Side widgets */}
+        <div className="space-y-5">
+          {/* FIX 5 ADD: Verdict Donut Chart */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
+            className="glass-panel p-5">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] mb-3 flex items-center gap-2">
+              <Shield size={13} /> Verdict Split
+            </h4>
+            {donutData.length > 0 ? (
+              <div style={{ position: 'relative', height: 150 }}>
+                <ResponsiveContainer width="100%" height={150}>
+                  <PieChart>
+                    <Pie data={donutData} cx="50%" cy="50%" innerRadius={44} outerRadius={66}
+                      dataKey="value" isAnimationActive={true} animationDuration={600}>
+                      {donutData.map(entry => (
+                        <Cell key={entry.name} fill={DONUT_COLORS[entry.name]} />
+                      ))}
+                      <DonutCenterLabel cx={75} cy={75} total={totalDocs} />
+                    </Pie>
+                    <Tooltip contentStyle={{ ...CHART_TOOLTIP.contentStyle }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-32 flex items-center justify-center text-[var(--text-muted)] text-xs italic">No data</div>
+            )}
+            <div className="flex flex-col gap-1 mt-2">
+              {donutData.map(d => (
+                <div key={d.name} className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5 text-[var(--text-muted)]">
+                    <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: DONUT_COLORS[d.name] }} />
+                    {d.name}
+                  </span>
+                  <strong style={{ color: 'var(--text-primary)' }}>{d.value}</strong>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+
+          {/* Risk Level */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
+            className="glass-panel p-5">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] mb-3 flex items-center gap-2">
+              <Shield size={13} />Risk Level
+            </h4>
+            <div className="relative h-24 flex items-center justify-center">
+              <div className={`absolute inset-0 rounded-full border ${riskLevel.border} opacity-20 animate-pulse`} />
+              <div className={`w-20 h-20 rounded-full ${riskLevel.bg} flex items-center justify-center border ${riskLevel.border}`}>
+                <span className={`text-sm font-bold ${riskLevel.color} text-center leading-tight`}>{riskLevel.label}</span>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Storage */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}
+            className="glass-panel p-5">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] mb-4 flex items-center gap-2">
+              <Database size={13} /> Storage
+            </h4>
+            <div className="space-y-3">
+              {[
+                { label: 'Documents',     pct: docsUsedPct, mb: storage?.documents_mb ?? 0, color: '#534AB7' },
+                { label: 'Reports',       pct: reportsPct,  mb: storage?.reports_mb   ?? 0, color: '#7F77DD' },
+              ].map(({ label, pct, mb, color }) => (
+                <div key={label} className="space-y-1">
+                  <div className="flex justify-between text-xs text-[var(--text-muted)]">
+                    <span>{label}</span>
+                    <span className="text-[var(--text-primary)] font-mono">{mb} MB</span>
+                  </div>
+                  <div className="w-full rounded-full h-1.5" style={{ background: 'var(--divider)' }}>
+                    <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
         </div>
-    );
+      </div>
+
+      {/* FIX 5 ADD: Risk Score Distribution Histogram */}
+      {scoreHist.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }}
+          className="glass-panel p-6">
+          <h3 className="font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
+            <Activity size={16} style={{ color: '#7F77DD' }} /> Confidence Score Distribution
+          </h3>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={scoreHist} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="var(--border-default)" strokeOpacity={0.5} strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="range" tick={{ fill: 'var(--text-secondary)', fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: 'var(--text-secondary)', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip {...CHART_TOOLTIP} />
+              <Bar dataKey="count" radius={[4, 4, 0, 0]} isAnimationActive={true} animationDuration={600} name="Documents">
+                {scoreHist.map((entry, idx) => (
+                  <Cell key={idx} fill={histogramBarColor(entry.range)} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="flex items-center gap-5 mt-3 text-xs text-[var(--text-muted)]">
+            <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm inline-block bg-emerald-500" />0–40% (Clean)</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm inline-block bg-amber-500" />40–70% (Suspicious)</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm inline-block bg-red-500" />70–100% (High Risk)</span>
+          </div>
+        </motion.div>
+      )}
+
+      {/* FIX 5 ADD: Recent Activity Table — connected to real API */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
+        className="glass-panel overflow-hidden">
+        <div className="px-6 py-4 border-b border-[var(--divider)] flex items-center gap-2">
+          <Activity size={16} style={{ color: '#7F77DD' }} />
+          <h3 className="font-bold text-[var(--text-primary)]">Recent Case Activity</h3>
+        </div>
+
+        {loading ? (
+          <div className="p-10 text-center text-[var(--text-muted)] animate-pulse">Loading activity...</div>
+        ) : recentDocs.length === 0 ? (
+          <div className="p-10 text-center">
+            <FileText size={36} className="text-[var(--text-muted)] mx-auto mb-3" />
+            <p className="text-[var(--text-muted)] mb-3">No documents uploaded yet.</p>
+            <button onClick={() => onViewChange?.('upload')}
+              className="px-4 py-2 rounded-lg text-sm font-semibold inline-flex items-center gap-2 transition-all"
+              style={{ background: 'rgba(83,74,183,0.12)', border: '1px solid rgba(83,74,183,0.25)', color: '#7F77DD' }}>
+              <Upload size={14} /> Upload Document
+            </button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--divider)] bg-white/3">
+                  {['Document Name', 'Uploaded By', 'Timestamp', 'Verdict', 'Confidence', 'Action'].map(h => (
+                    <th key={h} className="text-left px-6 py-3 text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--divider)]">
+                {recentDocs.slice(0, 10).map((doc) => (
+                  <tr key={doc.id} className="hover:bg-white/5 transition-colors group">
+                    <td className="px-6 py-4 font-medium text-[var(--text-primary)] max-w-[160px] truncate">
+                      {doc.original_filename || doc.filename || doc.document_id}
+                    </td>
+                    <td className="px-6 py-4 text-[var(--text-muted)] text-xs font-mono">{doc.uploaded_by || doc.user || '—'}</td>
+                    <td className="px-6 py-4 text-[var(--text-muted)] text-xs">{doc.uploaded_at}</td>
+                    <td className="px-6 py-4"><VerdictBadge verdict={doc.verdict} /></td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-20 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--divider)' }}>
+                          <div className={`h-full rounded-full ${doc.score > 70 ? 'bg-red-500' : doc.score > 40 ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                            style={{ width: `${doc.score || 0}%` }} />
+                        </div>
+                        <span className="font-mono text-xs text-[var(--text-primary)]">{doc.score || 0}%</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <button onClick={() => onViewChange?.('document_detail', doc.id)}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                        style={{ background: 'rgba(83,74,183,0.10)', border: '1px solid rgba(83,74,183,0.25)', color: '#7F77DD' }}>
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
 };
 
 export default Dashboard;

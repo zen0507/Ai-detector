@@ -1,380 +1,372 @@
-import { useState, useEffect } from 'react'
-import { Sidebar, SidebarItem, SidebarItems, SidebarItemGroup } from "flowbite-react"
+import { useState, useEffect, useCallback } from 'react'
+import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useTheme } from './hooks/useTheme'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Shield, LayoutDashboard, FileText, Upload, LogOut, Menu, X, ShieldCheck, ClipboardCheck, Moon, Sun, User as UserIcon, Database } from 'lucide-react'
-import UploadEvidence from './components/UploadEvidence'
-import Dashboard from './components/Dashboard'
-import CaseReports from './components/CaseReports'
-import Login from './components/Login'
-import Register from './components/Register'
-import RiskReduction from './components/RiskReduction'
-import AnalysisResult from './components/AnalysisResult'
-import ExpertDashboard from './components/ExpertDashboard'
-import Profile from './components/Profile'
+import { 
+  LayoutDashboard, FileText, Upload, LogOut, Menu, X, 
+  ClipboardCheck, User as UserIcon, Database, ChevronRight, ShieldCheck 
+} from 'lucide-react'
+
+// pages
+import UploadEvidence   from './components/UploadEvidence'
+import Dashboard        from './components/Dashboard'
+import CaseReports      from './components/CaseReports'
+import DashboardHome    from './components/DashboardHome'
+import DocumentDetail   from './components/DocumentDetail'
+import ExpertQueue      from './components/ExpertQueue'
+import Profile          from './components/Profile'
+import Login            from './components/Login'
+import Register         from './components/Register'
+import Landing          from './components/Landing'
+import RiskReduction    from './components/RiskReduction'
+import AnalysisResult   from './components/AnalysisResult'
+import PageHeader       from './components/PageHeader'
 import { NotificationProvider } from './context/NotificationSystem'
 
+// Admin Pages
+import AdminLayout          from './components/admin/AdminLayout'
+import AdminOverview        from './components/admin/AdminOverview'
+import UserManagement       from './components/admin/UserManagement'
+import UserDetail           from './components/admin/UserDetail'
+import AllDocuments         from './components/admin/AllDocuments'
+import ForensicQueue        from './components/admin/ForensicQueue'
+import Analytics            from './components/admin/Analytics'
+import SystemHealth         from './components/admin/SystemHealth'
+import AuditLog             from './components/admin/AuditLog'
+
+/* ── Fractured Shield (Sidebar logo) ── */
+const FracturedShield = ({ size = 22 }) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+    <path d="M16 2L4 7v9c0 6.6 5.1 11.5 12 13 6.9-1.5 12-6.4 12-13V7L16 2z" 
+      stroke="#7F77DD" strokeWidth="1.5" fill="rgba(83,74,183,0.12)" />
+    <path d="M19 5L14 13L17 14L12 22" stroke="#7F77DD" strokeWidth="1.2" strokeLinecap="round" />
+  </svg>
+)
+
+/* ── Page title mapping ── */
+const PAGE_TITLES = {
+  '/':              'Dashboard',
+  '/analytics':     'Live Analytics',
+  '/upload':        'Upload Evidence',
+  '/reports':       'Audit History',
+  '/document/':     'Document Detail',
+  '/expert-queue':  'Expert Review Queue',
+  '/profile':       'Profile & Settings',
+  '/result':        'Analysis Result',
+  '/risk-reduction': 'Risk Reduction',
+}
+
+const ProtectedAdminRoute = ({ user, children }) => {
+  const isAdmin = user?.role === 'admin' || user?.is_staff || user?.is_superuser;
+  if (!isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+};
+
+import ExpertLayout      from './components/expert/ExpertLayout'
+import ExpertHome        from './components/expert/ExpertHome'
+import ReviewQueue       from './components/expert/ReviewQueue'
+import DocumentExaminationRoom from './components/expert/DocumentExaminationRoom'
+import CompletedReviews  from './components/expert/CompletedReviews'
+import ExpertAnalytics   from './components/expert/ExpertAnalytics'
+import ExpertProfile     from './components/expert/ExpertProfile'
+
+
+const ProtectedExpertRoute = ({ user, children }) => {
+  const isExpert = user?.is_forensic_expert || user?.role === 'forensic_expert' || user?.is_staff || (user?.username && user.username.toLowerCase().includes('expert'));
+  if (!isExpert) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+};
+
 function App() {
-  const [authStatus, setAuthStatus] = useState('login')
-  const [currentView, setCurrentView] = useState('menu')
+  const [authStatus, setAuthStatus] = useState('landing')
   const [viewData, setViewData] = useState(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [user, setUser] = useState(null)
-
-  // Theme State - Default to Dark
-  const [darkMode, setDarkMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('theme') !== 'light';
-    }
-    return true;
-  });
+  const { theme, toggleTheme } = useTheme()
+  const location = useLocation()
+  const navigate = useNavigate()
 
   useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
+    // Session check on mount
+    const checkSession = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/detector/api/me/', { credentials: 'include' });
+        const data = await res.json();
+        if (data.success) {
+          setUser(data);
+          setAuthStatus('app');
+          // If already at '/', check if they should be at '/expert'
+          if (location.pathname === '/' || location.pathname === '') {
+             if (data.role === 'forensic_expert' || data.is_forensic_expert) {
+                navigate('/expert');
+             } else if (data.is_staff || data.is_superuser) {
+                navigate('/admin');
+             }
+          }
+        }
+      } catch (e) { console.error('Session check failed', e); }
+    };
+    checkSession();
+  }, []);
+
+  // Session timeout implementation for admins (30 min logout, 25 min warning)
+  const [lastActivity, setLastActivity] = useState(Date.now());
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
+
+  useEffect(() => {
+    if (user?.role === 'admin' || user?.is_staff) {
+      const interval = setInterval(() => {
+        const inactiveTime = Date.now() - lastActivity;
+        if (inactiveTime > 30 * 60 * 1000) { // 30 mins
+          handleLogout();
+        } else if (inactiveTime > 25 * 60 * 1000) { // 25 mins
+          setShowTimeoutWarning(true);
+        }
+      }, 30000); // Check every 30s
+      return () => clearInterval(interval);
     }
-  }, [darkMode]);
+  }, [lastActivity, user]);
 
-  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen)
-
-  const handleViewChange = (view, data = null) => {
-    setCurrentView(view)
-    if (data) setViewData(data)
-  }
+  const resetActivity = useCallback(() => {
+    setLastActivity(Date.now());
+    setShowTimeoutWarning(false);
+  }, []);
 
   const handleLogin = (userData) => {
     setUser(userData)
-    setAuthStatus('authenticated')
-    if (userData.is_forensic_expert) {
-      setCurrentView('expert_review')
+    setAuthStatus('app')
+    const isAdmin = userData.role === 'admin' || userData.is_staff || userData.is_superuser;
+    const isExpert = userData.is_forensic_expert || userData.role === 'forensic_expert' || (userData.username && userData.username.toLowerCase().includes('expert'));
+    
+    if (isExpert && !isAdmin) {
+      navigate('/expert')
+    } else if (isAdmin) {
+      navigate('/admin')
     } else {
-      setCurrentView('menu')
+      navigate('/')
     }
   }
 
-  // Render logic based on auth status
-  const getPageContent = () => {
-    if (authStatus === 'login') {
-      return (
-        <Login
-          key="login"
-          onLogin={handleLogin}
-          onSwitchToRegister={() => setAuthStatus('register')}
-          darkMode={darkMode}
-          toggleTheme={() => setDarkMode(!darkMode)}
+  const handleLogout = () => {
+    setUser(null)
+    setAuthStatus('landing')
+    navigate('/')
+  }
+
+  /* ── Pre-auth screens ── */
+  if (authStatus === 'landing') {
+    return (
+      <NotificationProvider>
+        <Landing 
+          onGoToLogin={() => setAuthStatus('login')} 
+          onGoToRegister={() => setAuthStatus('register')} 
+          theme={theme} 
+          toggleTheme={toggleTheme} 
         />
-      );
-    }
-    if (authStatus === 'register') {
-      return (
-        <Register
-          key="register"
+      </NotificationProvider>
+    )
+  }
+
+  if (authStatus === 'login') {
+    return (
+      <NotificationProvider>
+        <Login 
+          onLogin={handleLogin} 
+          onSwitchToRegister={() => setAuthStatus('register')} 
+          theme={theme} 
+          toggleTheme={toggleTheme} 
+        />
+      </NotificationProvider>
+    )
+  }
+
+  if (authStatus === 'register') {
+    return (
+      <NotificationProvider>
+        <Register 
           onRegister={(userData) => {
-            setUser(userData);
-            setAuthStatus('authenticated');
+            setUser(userData)
+            setAuthStatus('app')
+            navigate('/')
           }}
           onSwitchToLogin={() => setAuthStatus('login')}
-          darkMode={darkMode}
-          toggleTheme={() => setDarkMode(!darkMode)}
+          theme={theme}
+          toggleTheme={toggleTheme} 
         />
-      );
-    }
+      </NotificationProvider>
+    )
+  }
 
-    const renderContent = () => {
-      switch (currentView) {
-        case 'menu':
-          return <MenuGrid setCurrentView={setCurrentView} isStaff={user?.is_staff || user?.is_superuser} user={user} />;
-        case 'dashboard':
-          return <Dashboard />;
-        case 'upload':
-          return <UploadEvidence onViewChange={handleViewChange} />;
-        case 'report': // Fallback for typo
-        case 'reports':
-          return <CaseReports onViewChange={(view, data) => handleViewChange(view, data)} />;
-        case 'result':
-          return <AnalysisResult result={viewData} onViewChange={handleViewChange} />;
-        case 'expert_review':
-          return <ExpertDashboard />;
-        case 'risk_reduction':
-          return <RiskReduction recommendations={viewData} />;
-        case 'profile':
-          return <Profile user={user} onLogout={() => setAuthStatus('login')} />;
-        case 'verification_requests':
-          // Fallback for verification requests if needed, but ExpertDashboard should handle it?
-          // Actually sidebar has 'Expert Requests' pointing to 'verification_requests'.
-          // Wait, ExpertDashboard IS the review queue.
-          // Let's check ExpertDashboard again. It fetches "pending reviews".
-          // Use ExpertDashboard for verification_requests if user is expert.
-          // But what if regular user clicks 'Expert Requests'? That's hidden for regular user in sidebar.
-          return <ExpertDashboard />;
-        default:
-          return <MenuGrid setCurrentView={setCurrentView} isStaff={user?.is_staff || user?.is_superuser} user={user} />;
-      }
-    }
+  /* ── App shell ── */
+  const isExpert = user?.is_forensic_expert || user?.role === 'forensic_expert' || user?.is_staff || (user?.username && user.username.toLowerCase().includes('expert'))
+  const isAdmin = user?.role === 'admin' || user?.is_staff || user?.is_superuser;
 
+  const getPageTitle = () => {
+    const path = '/' + location.pathname.split('/')[1];
+    return PAGE_TITLES[path] || 'Dashboard';
+  }
+
+  // Sidebar nav items — role-based
+  const navItems = isExpert ? [
+    { icon: LayoutDashboard,  label: 'Dashboard',       path: '/' },
+    { icon: LayoutDashboard,  label: 'Live Analytics',  path: '/analytics' },
+    { icon: Upload,           label: 'Upload Evidence', path: '/upload' },
+    { icon: FileText,         label: 'Audit History',   path: '/reports' },
+    { icon: ClipboardCheck,   label: 'Expert Review Queue', path: '/expert-queue', highlight: true },
+  ] : [
+    { icon: LayoutDashboard, label: 'Dashboard',       path: '/' },
+    { icon: Upload,          label: 'Upload Evidence', path: '/upload' },
+    { icon: FileText,        label: 'Audit History',   path: '/reports' },
+  ];
+
+  if (location.pathname.startsWith('/admin')) {
     return (
-      <div className="flex h-screen overflow-hidden">
-        {/* Mobile Toggle */}
-        <div className="md:hidden fixed top-4 right-4 z-50">
-          <button onClick={toggleSidebar} className="p-2 glass-panel text-white">
-            {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
-          </button>
-        </div>
+      <NotificationProvider>
+        <Routes>
+          <Route path="/admin" element={<AdminLayout user={user} onLogout={handleLogout} />}>
+             <Route index element={<AdminOverview />} />
+             <Route path="users" element={<UserManagement />} />
+             <Route path="users/:id" element={<UserDetail />} />
+             <Route path="documents" element={<AllDocuments />} />
+             <Route path="documents/:id" element={<DocumentDetailWrapper onBack={() => navigate('/admin/documents')} user={user} />} />
+             <Route path="forensic-queue" element={<ForensicQueue />} />
+             <Route path="analytics" element={<Analytics />} />
+             <Route path="system" element={<SystemHealth />} />
+             <Route path="audit-log" element={<AuditLog />} />
+          </Route>
+        </Routes>
 
-        {/* Sidebar */}
-        <Sidebar
-          aria-label="Sidebar with logo branding"
-          className={`fixed md:sticky top-0 h-screen w-20 md:w-64 border-r border-slate-200 dark:border-white/5 border-y-0 border-l-0 rounded-none z-40 transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} bg-white/80 dark:bg-black/20 backdrop-blur-xl`}
-        >
-          <div className="flex items-center gap-3 px-2 mb-12 mt-4 cursor-pointer" onClick={() => setCurrentView('menu')}>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-neon-violet flex items-center justify-center shadow-lg shadow-indigo-500/20 shrink-0">
-              <Shield className="text-white" size={24} />
+        {/* Inactivity Warning Modal */}
+        <AnimatePresence>
+          {showTimeoutWarning && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-panel p-8 max-w-sm w-full text-center border-red-500/30">
+                <ShieldCheck className="mx-auto mb-4 text-red-500" size={48} />
+                <h3 className="text-xl font-bold mb-2">Session Expiring</h3>
+                <p className="text-sm text-[var(--text-secondary)] mb-6">Your admin session will expire in 5 minutes due to inactivity. Security policy requires re-authentication.</p>
+                <div className="flex gap-4">
+                  <button onClick={handleLogout} className="flex-1 px-4 py-2 rounded-lg border border-white/10 hover:bg-white/5 transition-all text-xs font-bold text-[var(--text-muted)]">LOG OUT</button>
+                  <button onClick={resetActivity} className="flex-1 px-4 py-2 rounded-lg bg-[#7F77DD] text-white text-xs font-bold shadow-lg shadow-[#7F77DD]/20">STAY LOGGED IN</button>
+                </div>
+              </motion.div>
             </div>
-            <div className="hidden md:block">
-              <h1 className="font-bold text-lg tracking-tight text-slate-800 dark:text-white">Sentry<span className="text-indigo-600 dark:text-neon-violet">AI</span></h1>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">Forensics Unit</p>
-            </div>
-          </div>
-
-          <SidebarItems>
-            <SidebarItemGroup>
-              <SidebarItem
-                icon={Menu}
-                active={currentView === 'menu'}
-                onClick={() => setCurrentView('menu')}
-                className={currentView === 'menu' ? 'bg-indigo-50 dark:bg-white/10 text-indigo-600 dark:text-cyan-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white transition-colors'}
-              >
-                Main Menu
-              </SidebarItem>
-
-              {!user?.is_forensic_expert && (
-                <>
-                  <SidebarItem
-                    icon={LayoutDashboard}
-                    active={currentView === 'dashboard'}
-                    onClick={() => setCurrentView('dashboard')}
-                    className={currentView === 'dashboard' ? 'bg-indigo-50 dark:bg-white/10 text-indigo-600 dark:text-cyan-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white transition-colors'}
-                  >
-                    Dashboard
-                  </SidebarItem>
-                  <SidebarItem
-                    icon={Upload}
-                    active={currentView === 'upload'}
-                    onClick={() => setCurrentView('upload')}
-                    className={currentView === 'upload' ? 'bg-indigo-50 dark:bg-white/10 text-indigo-600 dark:text-cyan-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white transition-colors'}
-                  >
-                    Upload Evidence
-                  </SidebarItem>
-                  <SidebarItem
-                    icon={FileText}
-                    active={currentView === 'reports'}
-                    onClick={() => setCurrentView('reports')}
-                    className={currentView === 'reports' ? 'bg-indigo-50 dark:bg-white/10 text-indigo-600 dark:text-cyan-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white transition-colors'}
-                  >
-                    Audit History
-                  </SidebarItem>
-                </>
-              )}
-              {user?.is_forensic_expert && (
-                <SidebarItem
-                  icon={ClipboardCheck}
-                  active={currentView === 'expert_review'}
-                  onClick={() => setCurrentView('expert_review')}
-                  className={currentView === 'expert_review' ? 'bg-indigo-50 dark:bg-white/10 text-indigo-600 dark:text-cyan-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white transition-colors'}
-                >
-                  Expert Queue
-                </SidebarItem>
-              )}
-              {user?.is_staff && (
-                <SidebarItem
-                  icon={Database}
-                  onClick={() => window.open('http://127.0.0.1:8000/admin/', '_blank')}
-                  className="text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white transition-colors"
-                >
-                  Admin Panel
-                </SidebarItem>
-              )}
-            </SidebarItemGroup>
-
-            <SidebarItemGroup className="border-t border-white/10 pt-4 mt-4">
-              <SidebarItem
-                icon={UserIcon}
-                active={currentView === 'profile'}
-                onClick={() => setCurrentView('profile')}
-                className={currentView === 'profile' ? 'bg-indigo-50 dark:bg-white/10 text-indigo-600 dark:text-cyan-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white transition-colors'}
-              >
-                Profile & Settings
-              </SidebarItem>
-
-              {/* Theme Toggle Button */}
-              <button
-                onClick={() => setDarkMode(!darkMode)}
-                className="flex w-full items-center p-2 text-slate-500 dark:text-slate-400 rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white group transition-colors mb-2"
-              >
-                {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-                <span className="ml-3 text-sm font-medium">{darkMode ? 'Light Mode' : 'Dark Mode'}</span>
-              </button>
-
-              <SidebarItem
-                icon={LogOut}
-                onClick={() => setAuthStatus('login')}
-                className="text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
-              >
-                Disconnect
-              </SidebarItem>
-            </SidebarItemGroup>
-          </SidebarItems>
-        </Sidebar>
-
-        {/* Main Content Area */}
-        <main className={`flex-1 p-4 md:p-8 overflow-y-auto h-full relative ${currentView === 'result' ? 'p-0 md:p-0' : ''}`}>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentView}
-              initial={{ opacity: 0, y: 20, filter: 'blur(10px)' }}
-              animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-              exit={{ opacity: 0, y: -20, filter: 'blur(10px)' }}
-              transition={{ duration: 0.3 }}
-              className={`w-full h-full ${currentView === 'result' ? '' : 'max-w-7xl mx-auto'}`}
-            >
-              {renderContent()}
-            </motion.div>
-          </AnimatePresence>
-        </main>
-      </div>
+          )}
+        </AnimatePresence>
+      </NotificationProvider>
     );
-  };
+  }
+
+  // --- EXPERT ROUTES ---
+  if (location.pathname.startsWith('/expert')) {
+    return (
+      <NotificationProvider>
+        <Routes>
+          <Route path="/expert" element={<ExpertLayout user={user} onLogout={handleLogout} />}>
+            <Route index element={<ExpertHome user={user} />} />
+            <Route path="queue" element={<ReviewQueue user={user}  onViewDocument={(id) => navigate('/expert/queue/'+id)}/>} />
+            <Route path="queue/:id" element={<DocumentExaminationRoomWrapper user={user} onBack={() => navigate('/expert/queue')} />} />
+            <Route path="completed" element={<CompletedReviews user={user} />} />
+            <Route path="analytics" element={<ExpertAnalytics user={user} />} />
+            <Route path="profile" element={<ExpertProfile user={user} onLogout={handleLogout} />} />
+          </Route>
+        </Routes>
+      </NotificationProvider>
+    )
+  }
 
   return (
     <NotificationProvider>
-      <div className="min-h-screen text-slate-200 font-sans selection:bg-neon-violet/30 relative">
-        {/* --- Global Aurora Background --- */}
-        <div className="aurora-bg">
-          <div className="aurora-light light-1"></div>
-          <div className="aurora-light light-2"></div>
-          <div className="aurora-light light-3"></div>
-        </div>
+      <div onMouseMove={resetActivity} onKeyDown={resetActivity} className="min-h-screen bg-[var(--bg-page)] text-[var(--text-primary)] font-sans selection:bg-[rgba(83,74,183,0.3)] flex h-screen overflow-hidden transition-colors duration-300">
+        <aside className={`fixed md:sticky top-0 h-screen w-64 border-r border-[rgba(83,74,183,0.15)] z-40 transition-transform duration-300
+          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          bg-[var(--bg-panel-left)] backdrop-blur-xl flex flex-col`}>
 
-        {/* --- Main Content Switcher --- */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={authStatus}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-            className="h-full"
-          >
-            {getPageContent()}
-          </motion.div>
-        </AnimatePresence>
+          <div className="flex items-center gap-3 px-5 py-5 cursor-pointer border-b border-[rgba(83,74,183,0.1)]" onClick={() => navigate('/')}>
+            <FracturedShield size={26} />
+            <span className="font-semibold text-[var(--text-primary)] text-lg tracking-tight">Falsum</span>
+          </div>
+
+          <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+            {navItems.map(({ icon: Icon, label, path, highlight }) => (
+              <NavItem 
+                key={path + label} 
+                icon={Icon} 
+                label={label} 
+                active={location.pathname === path} 
+                highlight={highlight} 
+                onClick={() => navigate(path)} 
+              />
+            ))}
+            {isAdmin && (
+              <NavItem icon={Database} label="Admin Console" onClick={() => navigate('/admin')} highlight />
+            )}
+          </nav>
+
+          <div className="p-3 border-t border-[rgba(83,74,183,0.1)] space-y-1">
+            <NavItem icon={UserIcon} label="Profile & Settings" active={location.pathname === '/profile'} onClick={() => navigate('/profile')} />
+            <NavItem icon={LogOut} label="Sign Out" danger onClick={handleLogout} />
+          </div>
+        </aside>
+
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <PageHeader title={getPageTitle()} user={user} theme={theme} toggleTheme={toggleTheme} unreadCount={0} />
+
+          <main className="flex-1 overflow-y-auto">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={location.pathname}
+                initial={{ opacity: 0, y: 14, filter: 'blur(6px)' }}
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                exit={{ opacity: 0, y: -14, filter: 'blur(6px)' }}
+                transition={{ duration: 0.22 }}
+                className="w-full h-full p-6 md:p-8 max-w-7xl mx-auto"
+              >
+                <Routes>
+                  <Route path="/" element={<DashboardHome user={user} onNavigate={(view) => navigate(view === 'home' ? '/' : '/'+view)} />} />
+                  <Route path="/analytics" element={<Dashboard user={user} />} />
+                  <Route path="/upload" element={<UploadEvidence onViewChange={(v,d) => navigate('/result', {state: d})} />} />
+                  <Route path="/reports" element={<CaseReports onViewChange={(v,id) => navigate('/document/'+id)} />} />
+                  <Route path="/document/:id" element={<DocumentDetailWrapper user={user} onBack={() => navigate('/reports')} />} />
+                  <Route path="/result" element={<AnalysisResult result={viewData} onViewChange={(v) => navigate('/')} />} />
+                  <Route path="/expert-queue" element={<ExpertQueue user={user} onViewDocument={(id) => navigate('/document/'+id)} />} />
+                  <Route path="/risk-reduction" element={<RiskReduction recommendations={viewData} />} />
+                  <Route path="/profile" element={<Profile user={user} onLogout={handleLogout} />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </motion.div>
+            </AnimatePresence>
+          </main>
+        </div>
       </div>
     </NotificationProvider>
   )
 }
 
-const MenuGrid = ({ setCurrentView, isStaff, user }) => (
-  <div className="h-full flex flex-col justify-center items-center">
-    <div className="text-center mb-12">
-      <motion.h2
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="text-4xl md:text-6xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-indigo-800 to-slate-900 dark:from-white dark:via-slate-200 dark:to-slate-400 mb-4 tracking-tight"
-      >
-        Welcome back, Officer.
-      </motion.h2>
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="text-slate-600 dark:text-slate-400 max-w-lg mx-auto"
-      >
-        Select a module to begin your forensic analysis. System status is nominal.
-      </motion.p>
-    </div>
+const DocumentDetailWrapper = ({ user, onBack }) => {
+  const { id } = useParams();
+  const isExpert = user?.is_forensic_expert || user?.role === 'forensic_expert' || user?.is_staff || (user?.username && user.username.toLowerCase().includes('expert'))
+  return <DocumentDetail documentId={id} user={user} onBack={onBack} isExpertMode={!!isExpert} />;
+};
 
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl">
-      {!user?.is_forensic_expert && (
-        <>
-          <MenuCard
-            title="New Analysis"
-            desc="Upload documents for fabrication detection"
-            icon={<Upload size={32} />}
-            color="from-indigo-500 to-violet-500"
-            onClick={() => setCurrentView('upload')}
-            delay={0.1}
-          />
-          <MenuCard
-            title="Live Dashboard"
-            desc="Real-time monitoring and analytics"
-            icon={<LayoutDashboard size={32} />}
-            color="from-cyan-500 to-blue-500"
-            onClick={() => setCurrentView('dashboard')}
-            delay={0.2}
-          />
-          <MenuCard
-            title="Audit History"
-            desc="Review reports and expert statuses"
-            icon={<FileText size={32} />}
-            color="from-fuchsia-500 to-pink-500"
-            onClick={() => setCurrentView('reports')}
-            delay={0.3}
-          />
-        </>
-      )}
+const DocumentExaminationRoomWrapper = ({ user, onBack }) => {
+  const { id } = useParams();
+  return <DocumentDetail documentId={id} user={user} onBack={onBack} isExpertMode={true} />;
+};
 
-      {(user?.is_forensic_expert || isStaff) && (
-        <MenuCard
-          title="Forensic Queue"
-          desc="Review pending verification requests"
-          icon={<ShieldCheck size={32} />}
-          color="from-emerald-500 to-green-500"
-          onClick={() => setCurrentView('expert_review')}
-          delay={0.1}
-        />
-      )}
-
-      {isStaff && (
-        <MenuCard
-          title="Admin Console"
-          desc="Manage users and system configuration"
-          icon={<Database size={32} />}
-          color="from-slate-500 to-slate-700"
-          onClick={() => window.open('http://127.0.0.1:8000/admin/', '_blank')}
-          delay={0.2}
-        />
-      )}
-    </div>
-  </div>
-)
-
-const MenuCard = ({ title, desc, icon, color, onClick, delay }) => (
-  <motion.button
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ delay }}
-    onClick={onClick}
-    whileHover={{ y: -5, scale: 1.02 }}
-    whileTap={{ scale: 0.98 }}
-    className="glass-panel p-8 text-left group relative overflow-hidden h-64 flex flex-col justify-between"
-  >
-    <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${color} p-0.5 mb-4 shadow-lg shrink-0`}>
-      <div className="w-full h-full bg-white/90 dark:bg-black/40 backdrop-blur-md rounded-2xl flex items-center justify-center text-slate-800 dark:text-white group-hover:bg-transparent group-hover:text-white transition-all duration-300">
-        {icon}
-      </div>
-    </div>
-
-    <div className="relative z-10">
-      <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2 group-hover:text-white transition-colors">{title}</h3>
-      <p className="text-sm text-slate-600 dark:text-slate-400 group-hover:text-slate-100/90 leading-relaxed transition-colors">{desc}</p>
-    </div>
-
-    {/* Hover Gradient Effect */}
-    <div className={`absolute inset-0 bg-gradient-to-br ${color} opacity-0 group-hover:opacity-90 dark:group-hover:opacity-80 transition-opacity duration-500 pointer-events-none`}></div>
-  </motion.button>
+const NavItem = ({ icon: Icon, label, active, onClick, danger, highlight }) => (
+  <button onClick={onClick} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200
+      ${active ? 'bg-[rgba(83,74,183,0.18)] text-white border border-[rgba(83,74,183,0.35)]' : 
+        danger ? 'text-slate-500 hover:text-red-400 hover:bg-[rgba(163,45,45,0.08)]' : 
+        highlight ? 'text-emerald-500 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20' : 
+        'text-slate-500 hover:text-white hover:bg-[rgba(83,74,183,0.08)]'}`}>
+    <Icon size={17} />
+    <span className="flex-1 text-left whitespace-nowrap overflow-hidden text-ellipsis">{label}</span>
+    {active && <ChevronRight size={14} className="text-[#7F77DD]" />}
+  </button>
 )
 
 export default App

@@ -4,7 +4,9 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth import login, logout
 from django.contrib import messages
 from django.db.models import Count
+from django.conf import settings
 from .models import EvidenceItem
+
 from .forms import DocumentUploadForm, UserRegistrationForm, UserLoginForm
 from .api_client import FastAPIClient
 
@@ -12,32 +14,31 @@ from .api_client import FastAPIClient
 # Kept minimal for legacy routing compatibility if needed
 
 def register(request):
-    return redirect('dashboard')
+    # Redirect to React Frontend
+    return redirect('http://localhost:5173/register' if settings.DEBUG else 'dashboard')
 
 def user_login(request):
-    return redirect('dashboard')
+    # Redirect to React Frontend
+    return redirect('http://localhost:5173/login' if settings.DEBUG else 'dashboard')
 
 def user_logout(request):
     logout(request)
-    return redirect('login')
+    return redirect('http://localhost:5173/login' if settings.DEBUG else 'login')
 
-@login_required
+
 def upload_document(request):
-    # Deprecated view
-    return render(request, 'detector/upload.html', {'form': DocumentUploadForm()})
+    return redirect('http://localhost:5173/upload')
 
-@login_required
 def analysis_results(request, pk):
-    return redirect('dashboard')
+    return redirect(f'http://localhost:5173/results/{pk}')
 
-@login_required
 def dashboard(request):
+    # This is now a simple landing/placeholder that doesn't trigger loops
     return render(request, 'detector/dashboard.html', {})
 
-@login_required
 def analysis_list(request):
     return render(request, 'detector/analysis_list.html', {})
 
-@login_required
 def delete_analysis(request, pk):
     return redirect('dashboard')
+

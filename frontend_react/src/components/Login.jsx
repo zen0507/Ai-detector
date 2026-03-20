@@ -1,172 +1,232 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Card, Label, TextInput, Button } from "flowbite-react";
-import { User, Lock, ArrowRight, ShieldCheck, Eye, EyeOff, Sun, Moon } from 'lucide-react';
+import { useState, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { TextInput, Label, Button, Alert } from 'flowbite-react';
+import { Mail, Lock, ArrowRight, Eye, EyeOff, Sun, Moon, X, AlertTriangle } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
 
-const Login = ({ onLogin, onSwitchToRegister, darkMode, toggleTheme }) => {
-    const [credentials, setCredentials] = useState({ username: '', password: '' });
-    const [showPassword, setShowPassword] = useState(false);
-    const [error, setError] = useState('');
-    const [loading, setLoading] = useState(false);
+const customTheme = {
+  textInput: {
+    field: {
+      input: {
+        colors: {
+          gray: "bg-[var(--bg-input)] border-[var(--border-default)] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:ring-[var(--brand-glow)] transition-all duration-300",
+          failure: "bg-[var(--color-error-bg)] border-[var(--color-error-bd)] text-[var(--color-error)] focus:border-[var(--color-error)] transition-all duration-300",
+        },
+      },
+    },
+  },
+};
 
+const FracturedShield = ({ size = 80 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" fill="none">
+    <path d="M32 4L8 14v18c0 13.2 10.2 23 24 26 13.8-3 24-12.8 24-26V14L32 4z"
+      fill="var(--bg-card)" stroke="var(--brand-light)" strokeWidth="1.5" strokeLinejoin="round" />
+    <path d="M38 14L43 28L36 34L41 50" stroke="var(--brand-light)"
+      strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+  </svg>
+);
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setLoading(true);
-        setError('');
+const Field = ({ delay, children, focused }) => (
+  <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}
+    transition={{ duration: 0.4, delay, ease: "easeOut" }}
+    style={{ transformOrigin: 'center left' }}>
+    {children}
+  </motion.div>
+);
 
+const InteractiveIcon = ({ icon: Icon, focused }) => (
+  <motion.div
+    animate={focused ? { scale: 1.1, color: 'var(--brand-light)' } : { scale: 1, color: 'var(--text-muted)' }}
+    transition={{ type: "spring", stiffness: 300, damping: 15 }}
+    style={{ position: 'absolute', left: '12px', top: '12px', zIndex: 10, pointerEvents: 'none' }}
+  >
+    <Icon size={18} />
+  </motion.div>
+);
 
+const Login = ({ onLogin, onSwitchToRegister, theme, toggleTheme }) => {
+  const [credentials, setCredentials] = useState({ username: '', password: '' });
+  const [showPassword, setShowPassword] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [formError, setFormError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [focusedField, setFocusedField] = useState(null);
+  
+  const passwordRef = useRef(null);
+  const emailRef = useRef(null);
 
-        try {
-            const response = await fetch(`${API_BASE}/detector/api/login/`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(credentials)
-            });
+  const handleChange = (field, value) => {
+    setCredentials(prev => ({ ...prev, [field]: value }));
+    setFieldErrors(prev => ({ ...prev, [field]: '' }));
+    setFormError('');
+  };
 
-            const data = await response.json();
-            if (data.success) {
-                onLogin(data);
-            } else {
-                if (response.status === 401) {
-                    setError('Invalid Access ID or Passcode. Please register if you are new.');
-                } else {
-                    setError(data.message || 'Verification Failed');
-                }
-            }
-        } catch {
-            setError('Connection refused.');
-        } finally {
-            setLoading(false);
-        }
-    };
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
+    setLoading(true);
+    setFormError('');
+    try {
+      const res = await fetch(`${API_BASE}/detector/api/login/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(credentials),
+      });
+      const data = await res.json();
+      if (data.success) {
+        onLogin(data);
+      } else {
+        // Report the actual message from backend
+        setFormError(data.message || 'Authentication failed. Check your credentials.');
+      }
+    } catch {
+      setFormError('Unable to connect. Server offline.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    return (
-        <div className="flex items-center justify-center min-h-screen p-4 relative w-full h-full bg-grid-pattern">
-            {/* Theme Toggle (Optional override if needed, but App likely handles this if layout was shared. 
-                However, since App renders Login *instead* of Layout content, we keep the toggle here or move it to App level.
-                Given current App structure, Login is a direct child of the main Background wrapper, so we keep absolute positioning relative to screen) 
-            */}
+  const handleKeyDown = (e, field) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (field === 'username') {
+        // Use document.getElementById or refs if needed, but the current TextInput from Flowbite 
+        // doesn't expose a clean ref easily without extra steps. 
+        // We'll use getElementById as a reliable fallback for now.
+        document.getElementById('password')?.focus();
+      } else if (field === 'password') {
+        handleSubmit();
+      }
+    }
+  };
 
-            <button
-                onClick={toggleTheme}
-                className="absolute top-6 right-6 z-50 p-3 rounded-full bg-white/20 dark:bg-white/5 backdrop-blur-md border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-white/30 dark:hover:bg-white/10 transition-all hover:scale-110 shadow-lg"
-            >
-                {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-                className="w-full max-w-[400px] relative z-10"
-            >
-                <div className="glass-panel p-8 md:p-12 border-t border-white/40 dark:border-white/20">
-                    <div className="text-center mb-10">
-                        <motion.div
-                            whileHover={{ scale: 1.05, rotate: 5 }}
-                            className="w-20 h-20 bg-gradient-to-tr from-indigo-500 to-violet-600 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-indigo-500/30 mb-6 group cursor-pointer"
-                        >
-                            <ShieldCheck className="text-white w-10 h-10 group-hover:scale-110 transition-transform duration-300" />
-                        </motion.div>
-                        <h2 className="text-4xl font-extrabold text-slate-900 dark:text-white mb-2 tracking-tighter">Sentry<span className="text-indigo-600 dark:text-neon-violet">AI</span></h2>
-                        <p className="text-slate-500 dark:text-slate-400 font-medium text-sm">Identity Verification Required</p>
-                    </div>
-
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                        <div className="space-y-2 group">
-                            <Label htmlFor="username" value="ACCESS ID" className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest pl-1 group-focus-within:text-indigo-600 dark:group-focus-within:text-neon-violet transition-colors" />
-                            <div className="relative group/input">
-                                <div className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center border-r border-slate-200 dark:border-white/10 group-focus-within/input:border-indigo-500/50 dark:group-focus-within/input:border-neon-violet/50 transition-colors">
-                                    <User className="text-slate-400 group-focus-within/input:text-indigo-600 dark:group-focus-within/input:text-neon-violet transition-colors duration-300" size={20} />
-                                </div>
-                                <input
-                                    id="username"
-                                    type="text"
-                                    value={credentials.username}
-                                    onChange={(e) => setCredentials({ ...credentials, username: e.target.value })}
-                                    placeholder="Enter Agent ID"
-                                    required
-                                    className="glass-input peer !pl-16"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="space-y-2 group">
-                            <div className="flex justify-between items-center">
-                                <Label htmlFor="password" value="passcode" className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest pl-1 group-focus-within:text-indigo-600 dark:group-focus-within:text-neon-violet transition-colors" />
-                            </div>
-                            <div className="relative group/input">
-                                <div className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center border-r border-slate-200 dark:border-white/10 group-focus-within/input:border-indigo-500/50 dark:group-focus-within/input:border-neon-violet/50 transition-colors">
-                                    <Lock className="text-slate-400 group-focus-within/input:text-indigo-600 dark:group-focus-within/input:text-neon-violet transition-colors duration-300" size={18} />
-                                </div>
-                                <input
-                                    id="password"
-                                    type={showPassword ? "text" : "password"}
-                                    value={credentials.password}
-                                    onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
-                                    placeholder="••••••••"
-                                    required
-                                    className="glass-input peer !pl-16 pr-12"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600 dark:hover:text-white transition-colors"
-                                >
-                                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                </button>
-                            </div>
-                        </div>
-
-                        {error && (
-                            <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                className="bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-200 text-sm font-medium p-3 rounded-xl flex items-center justify-center gap-2"
-                            >
-                                <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>
-                                {error}
-                            </motion.div>
-                        )}
-
-                        <div className="pt-2">
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className="btn-primary w-full h-12 text-base shadow-neon"
-                            >
-                                {loading ? (
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                        <span>Verifying...</span>
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center justify-center gap-2">
-                                        <span>Authenticate Access</span>
-                                        <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                                    </div>
-                                )}
-                            </button>
-                        </div>
-                    </form>
-
-                    <div className="mt-8 text-center bg-white/40 dark:bg-white/5 rounded-xl py-3 border border-slate-200 dark:border-white/5 cursor-pointer hover:bg-white/60 dark:hover:bg-white/10 transition-colors" onClick={onSwitchToRegister}>
-                        <div className="text-xs font-medium text-slate-500 dark:text-slate-400">New Personnel?</div>
-                        <div className="text-sm font-bold text-slate-800 dark:text-white hover:text-indigo-600 dark:hover:text-neon-violet transition-colors">Initialize Portfolio</div>
-                    </div>
-                </div>
-
-                {/* Footer decorations */}
-                <div className="mt-8 text-center">
-                    <p className="text-xs text-slate-500 dark:text-slate-600 font-mono">SECURE CONNECTION ESTABLISHED • TLS 1.3</p>
-                </div>
-            </motion.div>
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '2fr 3fr', minHeight: '100vh', backgroundColor: 'var(--bg-page)' }}>
+      <div className="hidden lg:flex" style={{
+        position: 'sticky', top: 0, height: '100vh',
+        backgroundColor: 'var(--bg-panel-left)',
+        borderRight: '1px solid var(--divider)',
+        flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        padding: '48px 40px', overflow: 'hidden',
+        background: theme === 'light' ? 'linear-gradient(135deg, var(--bg-panel-left) 0%, #fff 100%)' : 'var(--bg-panel-left)'
+      }}>
+        <div className="absolute inset-0 falsum-grid opacity-30" />
+        <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', width: '100%' }}>
+          <motion.div whileHover={{ scale: 1.05, rotate: 2 }} className="cursor-pointer mb-8">
+            <FracturedShield size={96} />
+          </motion.div>
+          <h1 style={{ color: 'var(--text-primary)', fontSize: '1.8rem', fontWeight: 700, letterSpacing: '-0.02em', marginBottom: '8px' }}>Falsum</h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '40px', maxWidth: '200px' }}>Expose the counterfeit. Verify the truth.</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '240px' }}>
+            {['Bank-Grade Analysis', 'Instant Verdicts'].map((pill, i) => (
+              <div key={pill} style={{
+                display: 'flex', alignItems: 'center', gap: '12px',
+                backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-default)',
+                borderRadius: '12px', padding: '12px 16px',
+                color: 'var(--text-primary)', fontSize: '0.85rem', fontWeight: 500,
+                boxShadow: '0 4px 6px -1px var(--brand-glow)'
+              }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--brand-light)' }} />
+                {pill}
+              </div>
+            ))}
+          </div>
         </div>
-    );
+        <p style={{ position: 'absolute', bottom: '32px', fontFamily: 'monospace', fontSize: '10px', letterSpacing: '3px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+          Identity Verified • TLS 1.3
+        </p>
+      </div>
+
+      <div style={{
+        minHeight: '100vh', backgroundColor: 'var(--bg-panel-right)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '48px 40px', position: 'relative',
+      }}>
+        <button onClick={toggleTheme} className="theme-toggle" style={{ position: 'absolute', top: '24px', right: '24px', zIndex: 20 }}>
+          {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+
+        <div style={{ width: '100%', maxWidth: '400px' }}>
+          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
+            <h2 style={{ color: 'var(--text-primary)', fontSize: '1.75rem', fontWeight: 700, marginBottom: '8px', letterSpacing: '-0.01em' }}>Welcome</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '32px' }}>Enter credentials to access forensics.</p>
+          </motion.div>
+
+          {formError && (
+             <Alert color="failure" icon={X} className="mb-6 shadow-sm" onDismiss={() => setFormError('')}>
+               {formError}
+             </Alert>
+          )}
+
+          <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <Field delay={0.1}>
+              <Label htmlFor="email" value="Enterprise Email" style={{ marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase' }} />
+              <div className="relative">
+                <InteractiveIcon icon={Mail} focused={focusedField === 'email'} />
+                <TextInput
+                  id="email"
+                  type="email"
+                  placeholder="name@company.com"
+                  className="pl-10"
+                  required
+                  value={credentials.username}
+                  onChange={e => handleChange('username', e.target.value)}
+                  onKeyDown={e => handleKeyDown(e, 'username')}
+                  onFocus={() => setFocusedField('email')}
+                  onBlur={() => setFocusedField(null)}
+                  color={fieldErrors.username ? 'failure' : 'gray'}
+                  theme={customTheme.textInput}
+                />
+              </div>
+            </Field>
+
+            <Field delay={0.2}>
+              <div className="flex items-center justify-between mb-2">
+                <Label htmlFor="password" value="Master Password" style={{ color: 'var(--text-secondary)', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase' }} />
+                <motion.button type="button" whileHover={{ color: 'var(--text-primary)' }} className="text-[10px] text-[var(--text-muted)] font-bold tracking-wider uppercase">Recovery</motion.button>
+              </div>
+              <div className="relative">
+                <InteractiveIcon icon={Lock} focused={focusedField === 'password'} />
+                <TextInput
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  className="pl-10"
+                  required
+                  value={credentials.password}
+                  onChange={e => handleChange('password', e.target.value)}
+                  onKeyDown={e => handleKeyDown(e, 'password')}
+                  onFocus={() => setFocusedField('password')}
+                  onBlur={() => setFocusedField(null)}
+                  color={fieldErrors.password ? 'failure' : 'gray'}
+                  theme={customTheme.textInput}
+                />
+                <button type="button" onClick={() => setShowPassword(!showPassword)}
+                  style={{ position: 'absolute', right: '14px', top: '12px', color: 'var(--text-muted)', transition: 'color 0.2s' }}>
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </Field>
+
+            <Button
+              type="submit"
+              disabled={loading}
+              className="w-full h-12 shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-3"
+              style={{ backgroundColor: 'var(--brand-primary)', border: 'none' }}
+            >
+              {loading && <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin shrink-0" />}
+              <span>{loading ? 'Authenticating...' : 'Sign In to Falsum'}</span>
+            </Button>
+          </form>
+
+          <p style={{ textAlign: 'center', marginTop: '32px', color: 'var(--text-muted)', fontSize: '14px' }}>
+            New auditor? <button onClick={onSwitchToRegister} style={{ color: 'var(--brand-light)', fontWeight: 700, borderBottom: '2px solid transparent' }} className="hover:border-[var(--brand-light)] transition-all">Request Access</button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default Login;

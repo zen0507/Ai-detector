@@ -35,25 +35,26 @@ INSTALLED_APPS = [
 
 JAZZMIN_SETTINGS = {
     # title of the window (Will default to current_admin_site.site_title if absent or None)
-    "site_title": "SentryAI Admin",
+    "site_title": "Falsum Admin",
     # Title on the login screen (19 chars max) (defaults to current_admin_site.site_header if absent or None)
-    "site_header": "SentryAI",
+    "site_header": "Falsum",
     # Title on the brand (19 chars max) (defaults to current_admin_site.site_header if absent or None)
-    "site_brand": "SentryAI",
+    "site_brand": "Falsum",
     # Logo to use for your site, must be present in static files, used for brand on top left
     "site_logo": None,
     # Logo to use for your site, must be present in static files, used for login form logo (defaults to site_logo)
     "login_logo": None,
-    # Logo to use for login form in dark themes (defaults to login_logo)
+    # Logo to use for your site, must be present in static files, used for login form logo (defaults to site_logo)
     "login_logo_dark": None,
     # CSS classes that are applied to the logo above
     "site_logo_classes": "img-circle",
     # Relative path to a favicon for your site, will default to site_logo if absent (ideally 32x32 px)
     "site_icon": None,
     # Welcome text on the login screen
-    "welcome_sign": "Welcome to SentryAI Core",
+    "welcome_sign": "Welcome to Falsum Core",
     # Copyright on the footer
-    "copyright": "SentryAI Ltd",
+    "copyright": "Falsum Ltd",
+
     # List of model admins to search from the search bar, search bar omitted if excluded
     "search_model": ["auth.User", "detector.EvidenceItem"],
     # Field name on user model that contains avatar ImageField/URLField/Charfield or a callable that receives the user
